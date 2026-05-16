@@ -2,7 +2,7 @@ import streamlit as st
 import re
 import pandas as pd
 import os
-import matplotlib.pyplot as plt
+
 
 st.set_page_config(
     page_title="KEIRIN INVEST AI FINAL",
@@ -282,18 +282,12 @@ st.write(f"総収支：{total_profit}円")
 
 if not df.empty:
 
-    st.subheader("回収率グラフ")
+    st.subheader("過去レースDB")
 
     df["累計収支"] = df["profit"].cumsum()
 
-    fig, ax = plt.subplots()
-
-    ax.plot(df["累計収支"])
-
-    ax.set_title("累計収支")
-
-    st.pyplot(fig)
-
-    st.subheader("過去レースDB")
-
     st.dataframe(df)
+
+    st.subheader("累計収支")
+
+    st.write(df["累計収支"].tolist())
