@@ -113,7 +113,6 @@ def extract_lines(text):
 
                 nums.append(line)
 
-    # 9車対応
     if len(nums) >= 9:
 
         return (
@@ -122,7 +121,6 @@ def extract_lines(text):
             nums[6:9]
         )
 
-    # 7車対応
     elif len(nums) >= 7:
 
         return (
@@ -207,29 +205,24 @@ def calculate_scores(players, place):
 
         score = 0
 
-        # 基本能力
         score += p.get("勝率", 0) * 2
         score += p.get("連対率", 0) * 1.5
         score += p.get("3連対率", 0)
 
-        # 脚質
         score += p.get("B", 0) * 2.5
         score += p.get("逃", 0) * 2
         score += p.get("捲", 0) * 2.2
         score += p.get("差", 0) * 1.8
         score += p.get("マ", 0)
 
-        # 若手機動型補正
         if p.get("年齢", 50) <= 35:
 
             score += 5
 
-        # 高齢追込減点
         if p.get("年齢", 0) >= 48 and p.get("B", 0) == 0:
 
             score -= 4
 
-        # バンク補正
         if place in BANK_BONUS:
 
             score += BANK_BONUS[place]
@@ -248,34 +241,52 @@ def calculate_scores(players, place):
 
 def generate_bets(players_sorted):
 
-    bets = []
+    bets = {
 
-    if len(players_sorted) >= 4:
+        "本線": [],
+        "中穴": [],
+        "大穴": []
+    }
 
-        a = players_sorted[0]["車番"]
-        b = players_sorted[1]["車番"]
-        c = players_sorted[2]["車番"]
-        d = players_sorted[3]["車番"]
+    if len(players_sorted) < 5:
 
-        bets = {
+        return bets
 
-            "本線": [
-                f"{a}-{b}-{c}",
-                f"{a}-{c}-{b}",
-                f"{b}-{a}-{c}",
-                f"{a}-{b}-{d}"
-            ],
+    a = players_sorted[0]["車番"]
+    b = players_sorted[1]["車番"]
+    c = players_sorted[2]["車番"]
+    d = players_sorted[3]["車番"]
+    e = players_sorted[4]["車番"]
 
-            "中穴": [
-                f"{c}-{a}-{b}",
-                f"{b}-{c}-{a}"
-            ],
+    # 本線6点
+    bets["本線"] = [
 
-            "大穴": [
-                f"{d}-{a}-{b}",
-                f"{a}-{d}-{b}"
-            ]
-        }
+        f"{a}-{b}-{c}",
+        f"{a}-{c}-{b}",
+        f"{b}-{a}-{c}",
+        f"{a}-{b}-{d}",
+        f"{a}-{c}-{d}",
+        f"{b}-{c}-{a}"
+    ]
+
+    # 中穴6点
+    bets["中穴"] = [
+
+        f"{c}-{a}-{b}",
+        f"{c}-{b}-{a}",
+        f"{d}-{a}-{b}",
+        f"{b}-{d}-{a}",
+        f"{c}-{a}-{d}",
+        f"{d}-{b}-{c}"
+    ]
+
+    # 大穴3点
+    bets["大穴"] = [
+
+        f"{e}-{a}-{b}",
+        f"{a}-{e}-{b}",
+        f"{d}-{e}-{a}"
+    ]
 
     return bets
 
@@ -302,6 +313,87 @@ def calculate_ev(players_sorted):
     )
 
     return ev
+
+# =====================================
+# 的中確率
+# =====================================
+
+def calculate_hit_probability(players_sorted):
+
+    if len(players_sorted) < 4:
+
+        return 0
+
+    top_scores = [
+
+        p["AIスコア"]
+        for p in players_sorted[:3]
+    ]
+
+    avg_score = sum(top_scores) / 3
+
+    hit_rate = 0
+
+    if avg_score >= 180:
+
+        hit_rate = 78
+
+    elif avg_score >= 150:
+
+        hit_rate = 68
+
+    elif avg_score >= 120:
+
+        hit_rate = 58
+
+    elif avg_score >= 100:
+
+        hit_rate = 48
+
+    elif avg_score >= 80:
+
+        hit_rate = 38
+
+    else:
+
+        hit_rate = 25
+
+    top_b = players_sorted[0].get("B", 0)
+
+    if top_b >= 10:
+
+        hit_rate += 5
+
+    elif top_b >= 5:
+
+        hit_rate += 3
+
+    high_age_count = 0
+
+    for p in players_sorted[:3]:
+
+        if p.get("年齢", 0) >= 48:
+
+            high_age_count += 1
+
+    hit_rate -= high_age_count * 2
+
+    score_gap = (
+        players_sorted[0]["AIスコア"]
+        - players_sorted[3]["AIスコア"]
+    )
+
+    if score_gap <= 10:
+
+        hit_rate -= 8
+
+    elif score_gap <= 20:
+
+        hit_rate -= 4
+
+    hit_rate = max(5, min(hit_rate, 95))
+
+    return round(hit_rate, 1)
 
 # =====================================
 # 入力欄
@@ -338,20 +430,14 @@ if st.button("AI予想開始"):
 
         with st.spinner("AI解析中..."):
 
-            # =====================================
             # 開催場
-            # =====================================
-
             place = extract_place(race_data)
 
             st.header("開催場")
 
             st.success(place)
 
-            # =====================================
             # ライン解析
-            # =====================================
-
             line_result = extract_lines(race_data)
 
             if line_result:
@@ -368,10 +454,7 @@ if st.button("AI予想開始"):
 
                 st.error("ライン解析失敗")
 
-            # =====================================
             # 選手解析
-            # =====================================
-
             players = extract_players(race_data)
 
             if len(players) == 0:
@@ -380,22 +463,18 @@ if st.button("AI予想開始"):
 
             else:
 
-                # =====================================
-                # AIスコア計算
-                # =====================================
-
                 players_sorted = calculate_scores(
                     players,
                     place
                 )
 
                 # =====================================
-                # AIスコアランキング
+                # AIスコア
                 # =====================================
 
                 st.header("AIスコアランキング")
 
-                for idx, p in enumerate(players_sorted[:4]):
+                for idx, p in enumerate(players_sorted[:5]):
 
                     col1, col2 = st.columns([1, 5])
 
@@ -451,7 +530,7 @@ if st.button("AI予想開始"):
                 )
 
                 # =====================================
-                # 印
+                # 最終印
                 # =====================================
 
                 st.header("AI最終印")
@@ -478,19 +557,19 @@ if st.button("AI予想開始"):
 
                 if bets:
 
-                    st.subheader("本線")
+                    st.subheader("本線（6点）")
 
                     for b in bets["本線"]:
 
                         st.success(b)
 
-                    st.subheader("中穴")
+                    st.subheader("中穴（6点）")
 
                     for b in bets["中穴"]:
 
                         st.warning(b)
 
-                    st.subheader("大穴")
+                    st.subheader("大穴（3点）")
 
                     for b in bets["大穴"]:
 
@@ -507,6 +586,21 @@ if st.button("AI予想開始"):
                 st.metric(
                     "期待値",
                     f"{ev}%"
+                )
+
+                # =====================================
+                # 的中確率
+                # =====================================
+
+                hit_rate = calculate_hit_probability(
+                    players_sorted
+                )
+
+                st.header("的中確率")
+
+                st.metric(
+                    "AI予測的中率",
+                    f"{hit_rate}%"
                 )
 
                 # =====================================
@@ -562,11 +656,11 @@ if st.button("AI予想開始"):
 
                 st.header("波乱度")
 
-                if ev >= 900:
+                if hit_rate >= 70:
 
                     st.success("C 本命寄り")
 
-                elif ev >= 700:
+                elif hit_rate >= 50:
 
                     st.warning("B 標準")
 
