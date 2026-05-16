@@ -8,7 +8,7 @@ import re
 st.set_page_config(page_title="KEIRIN INVEST AI Ultimate", layout="wide")
 st.title("🚴 KEIRIN INVEST AI Ultimate")
 
-# 競輪場補正
+# 競輪場補正データ
 BANK_BONUS = {
     "函館": 4, "青森": 5, "いわき平": 6, "弥彦": 4, "前橋": 5, "取手": 5,
     "宇都宮": 5, "大宮": 4, "西武園": 4, "京王閣": 3, "立川": 4, "松戸": 4,
@@ -20,27 +20,31 @@ BANK_BONUS = {
 }
 
 # =====================================
-# 2. 最強解析ロジック（正規表現を極限まで柔軟化）
+# 2. 解析ロジック
 # =====================================
 
+def extract_place_fixed(text):
+    """開催場所をテキストの冒頭から優先的に抽出"""
+    # 最初の100文字以内を重点的に探す
+    header = text[:100]
+    for place in BANK_BONUS.keys():
+        if place in header:
+            return place
+    # 見つからない場合は全体から探す
+    for place in BANK_BONUS.keys():
+        if place in text:
+            return place
+    return "不明"
+
 def extract_players_final(text):
-    """
-    行単位ではなく、テキスト全体から正規表現で選手情報をぶっこ抜く
-    """
+    """テキスト全体から選手と成績を紐付け抽出"""
     players = []
-    
-    # 1. まず「車番 選手名 (年齢)」のセットをすべて探す
-    # 形式: "1 1 岩津裕介(44)" や "1 岩津裕介 (44)" など
+    # 選手名(年齢) のパターンで分割
     player_blocks = re.findall(r'([1-9])\s+([^\s\d\(\)（）]+)[\s\n]*[\(（](\d{2})[\)）]', text)
     
-    # 2. テキストを「選手名」で分割して、それぞれの成績を個別に探す
-    # これにより、名前と数字が離れていても確実に紐付く
     for i in range(len(player_blocks)):
         car_num, name, age = player_blocks[i]
-        
-        # この選手のデータが開始される位置を探す
         start_pos = text.find(name)
-        # 次の選手までのテキストを切り出す（最後の選手なら最後まで）
         if i + 1 < len(player_blocks):
             next_name = player_blocks[i+1][1]
             end_pos = text.find(next_name)
@@ -54,97 +58,90 @@ def extract_players_final(text):
             "勝率": 0.0, "連対率": 0.0, "3連対率": 0.0, "AIスコア": 0.0
         }
         
-        # 切り出したテキストから数値を抽出
         nums = re.findall(r"\d+\.\d+|\d+", target_text)
-        
-        # 小数点がある数字（確率）を抽出
         floats = [float(n) for n in nums if "." in n]
-        # 小数点がない数字（決まり手や年齢、着外数など）を抽出
         ints = [int(n) for n in nums if "." not in n]
         
-        # 決まり手（S, B, 逃, 捲, 差, マ）の抽出
-        # 選手名の直後に現れる5〜7個程度の整数を狙う
-        relevant_ints = [n for n in ints if n != int(age) and n < 50] # 年齢やギア比を除外
+        # 決まり手抽出（年齢や大きな数字を除外して精度向上）
+        relevant_ints = [n for n in ints if n != int(age) and n < 40]
         if len(relevant_ints) >= 6:
-            p_data["S"] = relevant_ints[0]
-            p_data["B"] = relevant_ints[1]
-            p_data["逃"] = relevant_ints[2]
-            p_data["捲"] = relevant_ints[3]
-            p_data["差"] = relevant_ints[4]
-            p_data["マ"] = relevant_ints[5]
+            p_data.update({"S": relevant_ints[0], "B": relevant_ints[1], "逃": relevant_ints[2], 
+                           "捲": relevant_ints[3], "差": relevant_ints[4], "マ": relevant_ints[5]})
             
-        # 確率（勝率, 連対率, 3連対率）
         if len(floats) >= 3:
-            p_data["勝率"] = floats[0]
-            p_data["連対率"] = floats[1]
-            p_data["3連対率"] = floats[2]
+            p_data.update({"勝率": floats[0], "連対率": floats[1], "3連対率": floats[2]})
             
         players.append(p_data)
-        
     return players
 
 def calculate_scores(players, place):
     for p in players:
-        score = 0
-        score += p["勝率"] * 2.5 + p["連対率"] * 1.8 + p["3連対率"] * 1.2
-        score += p["B"] * 3.0 + p["逃"] * 2.5 + p["捲"] * 2.5 + p["差"] * 1.0
+        score = (p["勝率"] * 2.5 + p["連対率"] * 1.8 + p["3連対率"] * 1.2 +
+                 p["B"] * 3.0 + p["逃"] * 2.5 + p["捲"] * 2.5 + p["差"] * 1.0)
         if p["年齢"] <= 30: score += 25
         elif p["年齢"] <= 35: score += 12
         score += BANK_BONUS.get(place, 0)
         p["AIスコア"] = round(score, 1)
     return sorted(players, key=lambda x: x["AIスコア"], reverse=True)
 
+def generate_bets_fixed(sorted_p):
+    """ご要望通りの点数（6-6-3）で生成"""
+    if len(sorted_p) < 5: return None
+    # 上位5名の車番を取得
+    n = [p["車番"] for p in sorted_p]
+    
+    # 3連単フォーマット: 1着-2着-3着
+    return {
+        "本線（6点）": [
+            f"{n[0]}-{n[1]}-{n[2]}", f"{n[0]}-{n[1]}-{n[3]}", 
+            f"{n[0]}-{n[2]}-{n[1]}", f"{n[0]}-{n[2]}-{n[3]}",
+            f"{n[1]}-{n[0]}-{n[2]}", f"{n[1]}-{n[0]}-{n[3]}"
+        ],
+        "中穴（6点）": [
+            f"{n[0]}-{n[3]}-{n[1]}", f"{n[0]}-{n[3]}-{n[2]}",
+            f"{n[2]}-{n[0]}-{n[1]}", f"{n[2]}-{n[1]}-{n[0]}",
+            f"{n[0]}-{n[1]}-{n[4]}", f"{n[1]}-{n[2]}-{n[3]}"
+        ],
+        "大穴（3点）": [
+            f"{n[3]}-{n[0]}-{n[1]}", f"{n[3]}-{n[1]}-{n[2]}", f"{n[4]}-{n[0]}-{n[1]}"
+        ]
+    }
+
 # =====================================
-# 3. Streamlit UI
+# 3. UI
 # =====================================
+race_data = st.text_area("競輪データを貼り付けてください", height=300)
 
-# 入力エリア
-race_data = st.text_area("競輪データを貼り付けてください（出走表まるごと）", height=400)
-
-c1, c2 = st.columns(2)
-with c1:
-    btn = st.button("AI解析実行", type="primary", use_container_width=True)
-with c2:
-    if st.button("リセット", use_container_width=True):
-        st.rerun()
-
-if btn:
-    if not race_data.strip():
-        st.warning("データが空です。")
-    else:
-        place = "不明"
-        for k in BANK_BONUS.keys():
-            if k in race_data: place = k
-            
+if st.button("AI予想開始", type="primary", use_container_width=True):
+    if race_data.strip():
+        place = extract_place_fixed(race_data)
         players = extract_players_final(race_data)
         
-        if not players:
-            st.error("選手が見つかりませんでした。貼り付けたデータに『選手名(年齢)』の形式があるか確認してください。")
-        else:
+        if players:
             sorted_p = calculate_scores(players, place)
+            st.success(f"📍 開催場: {place} 競輪場")
             
-            st.success(f"解析完了！ 開催場: {place} / 抽出選手数: {len(sorted_p)}名")
-
-            # 📊 メインランキング表
-            st.subheader("📊 AIスコアランキング")
+            # ランキング
+            st.subheader("📊 AI能力指数ランキング")
             df = pd.DataFrame(sorted_p)
             st.dataframe(df[["車番", "選手名", "年齢", "AIスコア", "勝率", "連対率", "S", "B", "逃", "捲", "差", "マ"]], use_container_width=True)
 
-            # 🎯 最終印と買い目
+            # 買い目表示
             st.divider()
-            col_a, col_b = st.columns(2)
-            
-            with col_a:
-                st.subheader("📝 AI最終印")
-                marks = ["◎", "○", "▲", "☆", "△"]
-                for i, p in enumerate(sorted_p[:5]):
-                    st.write(f"**{marks[i]}** {p['車番']}番 {p['選手名']} ({p['AIスコア']}点)")
-            
-            with col_b:
-                st.subheader("🎯 3連単 推奨買い目")
-                if len(sorted_p) >= 4:
-                    a, b, c, d = [p["車番"] for p in sorted_p[:4]]
-                    st.info(f"**本線**: {a}-{b}-{c}, {a}-{b}-{d}, {a}-{c}-{b}")
-                    st.warning(f"**穴**: {b}-{a}-{c}, {c}-{a}-{b}, {d}-{a}-{b}")
+            st.header("🎯 AI推奨買い目 (3連単)")
+            bets = generate_bets_fixed(sorted_p)
+            if bets:
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.success("🔥 本線 (6点)")
+                    for b in bets["本線（6点）"]: st.write(f"・{b}")
+                with col2:
+                    st.warning("⚖️ 中穴 (6点)")
+                    for b in bets["中穴（6点）"]: st.write(f"・{b}")
+                with col3:
+                    st.error("🚀 大穴 (3点)")
+                    for b in bets["大穴（3点）"]: st.write(f"・{b}")
+        else:
+            st.error("選手データを抽出できませんでした。コピー範囲を確認してください。")
 
-st.caption("※本ツールはデータの解析結果を提供するものであり、車券の的中を保証するものではありません。購入は自己責任でお願いいたします。")
+if st.button("リセット"): st.rerun()
