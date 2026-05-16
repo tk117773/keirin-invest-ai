@@ -3,14 +3,12 @@ import re
 import pandas as pd
 import os
 
-
 st.set_page_config(
     page_title="KEIRIN INVEST AI FINAL",
     layout="wide"
 )
 
 st.title("🚴 KEIRIN INVEST AI FINAL")
-st.write("Version 7")
 
 DB_FILE = "results.csv"
 
@@ -167,20 +165,24 @@ if st.button("AI予想開始"):
         line1, line2, single = result
 
         st.subheader("開催場")
-
         st.write(place)
 
         st.subheader("ライン解析")
-
         st.write(f"本命ライン：{'-'.join(line1)}")
         st.write(f"対抗ライン：{'-'.join(line2)}")
         st.write(f"単騎：{single}")
 
-                st.subheader("AIスコア")
+        st.subheader("AIスコア")
 
         ai_scores = {}
 
-        for i in range(min(len(players), len(rates), len(b_counts))):
+        count = min(
+            len(players),
+            len(rates),
+            len(b_counts)
+        )
+
+        for i in range(count):
 
             name = players[i][1].strip()
 
@@ -201,7 +203,6 @@ if st.button("AI予想開始"):
         if len(sorted_scores) == 0:
 
             st.error("選手データ解析失敗")
-
             st.stop()
 
         for rank, (name, score) in enumerate(sorted_scores, start=1):
@@ -209,7 +210,6 @@ if st.button("AI予想開始"):
             st.write(f"{rank}位 {name} AI点数 {score}")
 
         top_score = sorted_scores[0][1]
-            st.write(f"{rank}位 {name} AI点数 {score}")
 
         ev = calc_expected_value(
             top_score,
@@ -228,7 +228,6 @@ if st.button("AI予想開始"):
             st.success("穴期待値あり")
 
         st.subheader("AI期待値")
-
         st.success(f"期待値：{ev}%")
 
         st.subheader("投資判断")
@@ -249,10 +248,7 @@ if st.button("AI予想開始"):
             f"{line1[0]}-{line1[1]}-{line2[0]}",
             f"{line2[0]}-{line2[1]}-{line1[1]}",
             f"{single}-{line1[1]}-{line1[0]}",
-            f"{line1[1]}-{single}-{line1[0]}",
-            f"{line2[0]}-{line1[1]}-{single}",
-            f"{single}-{line2[0]}-{line1[1]}",
-            f"{line1[0]}-{single}-{line2[0]}"
+            f"{line1[1]}-{single}-{line1[0]}"
         ]
 
         for bet in bets:
