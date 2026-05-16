@@ -199,14 +199,19 @@ if st.button("AI予想開始"):
         )
 
         for rank, (name, score) in enumerate(sorted_scores, start=1):
+            for rank, (name, score) in enumerate(sorted_scores, start=1):
 
             st.write(f"{rank}位 {name} AI点数 {score}")
-if len(sorted_scores) == 0:
 
-    st.error("選手データ解析失敗")
+        if len(sorted_scores) == 0:
 
-    st.stop()
+            st.error("選手データ解析失敗")
+
+            st.stop()
+
         top_score = sorted_scores[0][1]
+            st.write(f"{rank}位 {name} AI点数 {score}")
+
         ev = calc_expected_value(
             top_score,
             odds_input
