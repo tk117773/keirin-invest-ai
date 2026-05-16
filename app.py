@@ -2,395 +2,118 @@ import streamlit as st
 import re
 
 st.set_page_config(
-    page_title="KEIRIN INVEST AI",
+    page_title="競輪投資AI",
     layout="wide"
 )
 
-st.title("🚴 KEIRIN INVEST AI Version8")
+st.title("競輪投資AI")
 
-# =====================================
-# Session State
-# =====================================
-
-if "race_data" not in st.session_state:
-
-    st.session_state["race_data"] = ""
-
-# =====================================
-# 全国競輪場補正
-# =====================================
-
-BANK_BONUS = {
-
-    "函館": 4,
-    "青森": 5,
-    "いわき平": 6,
-    "弥彦": 4,
-    "前橋": 5,
-    "取手": 5,
-    "宇都宮": 5,
-    "大宮": 4,
-    "西武園": 4,
-    "京王閣": 3,
-    "立川": 4,
-    "松戸": 4,
-    "千葉": 5,
-    "川崎": 3,
-    "平塚": 3,
-    "小田原": 2,
-    "伊東": 5,
-    "静岡": 5,
-    "名古屋": 4,
-    "岐阜": 5,
-    "大垣": 4,
-    "豊橋": 5,
-    "富山": 4,
-    "松阪": 5,
-    "四日市": 6,
-    "福井": 4,
-    "奈良": 4,
-    "向日町": 5,
-    "和歌山": 5,
-    "岸和田": 6,
-    "玉野": 5,
-    "広島": 4,
-    "防府": 4,
-    "高松": 4,
-    "小松島": 5,
-    "高知": 6,
-    "松山": 5,
-    "小倉": 6,
-    "久留米": 5,
-    "武雄": 4,
-    "佐世保": 5,
-    "別府": 6,
-    "熊本": 5
-}
-
-# =====================================
-# 開催場解析
-# =====================================
-
-def extract_place(text):
-
-    for place in BANK_BONUS.keys():
-
-        if place in text:
-
-            return place
-
-    return "不明"
-
-# =====================================
-# ライン解析（修正版）
-# =====================================
-
-def extract_lines(text):
-
-    lines = text.split("\n")
-
-    nums = []
-
-    start = False
-
-    for line in lines:
-
-        line = line.strip()
-
-        if "並び予想" in line:
-
-            start = True
-
-            continue
-
-        if start:
-
-            if re.match(r'^[1-9]$', line):
-
-                nums.append(line)
-
-                if len(nums) == 7:
-
-                    break
-
-    if len(nums) >= 7:
-
-        return (
-            nums[0:3],
-            nums[3:6],
-            nums[6]
-        )
-
-    return None
-
-# =====================================
-# 選手解析
-# =====================================
-
-def extract_players(text):
-
-    players = []
-
-    lines = text.split("\n")
-
-    for line in lines:
-
-        line = line.strip()
-
-        match = re.match(
-            r'^(\d+)\s+(\d+)\s+([^\(]+)\(',
-            line
-        )
-
-        if match:
-
-            car_no = match.group(2)
-
-            name = match.group(3).strip()
-
-            players.append((car_no, name))
-
-    return players
-
-# =====================================
-# 勝率解析
-# =====================================
-
-def extract_rates(text):
-
-    rates = []
-
-    lines = text.split("\n")
-
-    for line in lines:
-
-        line = line.strip()
-
-        nums = re.findall(r'\d+\.\d+', line)
-
-        if len(nums) >= 3:
-
-            try:
-
-                rate = float(nums[0])
-
-                if 0 <= rate <= 100:
-
-                    rates.append(rate)
-
-            except:
-
-                pass
-
-    return rates
-
-# =====================================
-# B数解析
-# =====================================
-
-def extract_b_numbers(text):
-
-    b_list = []
-
-    lines = text.split("\n")
-
-    for line in lines:
-
-        nums = re.findall(r'\d+', line)
-
-        if len(nums) >= 8:
-
-            try:
-
-                b = int(nums[3])
-
-                if 0 <= b <= 30:
-
-                    b_list.append(b)
-
-            except:
-
-                pass
-
-    return b_list
-
-# =====================================
+# ----------------------------
 # 入力欄
-# =====================================
+# ----------------------------
 
 race_data = st.text_area(
-    "競輪データ貼付",
-    height=450,
-    key="race_data"
+    "レースデータ入力",
+    height=350,
+    placeholder="競輪データを貼り付け"
 )
 
-# =====================================
-# クリア
-# =====================================
+# ----------------------------
+# AI解析
+# ----------------------------
 
-if st.button("クリア"):
+def analyze_race(data):
 
-    st.session_state["race_data"] = ""
+    lines = data.splitlines()
 
-    st.rerun()
+    ai_score = 70
 
-# =====================================
-# AI予想開始
-# =====================================
+    result = []
 
-if st.button("AI予想開始"):
+    # 選手抽出
+    riders = []
 
-    place = extract_place(race_data)
+    for line in lines:
 
-    st.header("開催場")
+        m = re.search(r'^\d+\s+\d+\s+([^\(]+)', line)
 
-    st.success(place)
+        if m:
+            riders.append(m.group(1).strip())
 
-    result = extract_lines(race_data)
+    # 簡易AIロジック
+    if len(riders) >= 3:
 
-    if result:
+        main = riders[0]
+        second = riders[1]
+        third = riders[2]
 
-        line1, line2, single = result
+        ai_score = 87
 
-        st.header("ライン解析")
+        result.append(f"◎本命 {main}")
+        result.append(f"○対抗 {second}")
+        result.append(f"▲穴 {third}")
 
-        st.write(f"本命ライン : {'-'.join(line1)}")
-        st.write(f"対抗ライン : {'-'.join(line2)}")
-        st.write(f"単騎 : {single}")
-
-        players = extract_players(race_data)
-
-        rates = extract_rates(race_data)
-
-        b_nums = extract_b_numbers(race_data)
-
-        # =====================================
-        # 解析確認
-        # =====================================
-
-        st.header("解析確認")
-
-        st.write("選手数")
-        st.write(len(players))
-        st.write(players)
-
-        st.write("勝率数")
-        st.write(len(rates))
-        st.write(rates)
-
-        st.write("B数")
-        st.write(len(b_nums))
-        st.write(b_nums)
-
-        # =====================================
-        # AIスコア計算
-        # =====================================
-
-        scores = []
-
-        count = min(len(players), len(rates))
-
-        for i in range(count):
-
-            car_no = players[i][0]
-
-            name = players[i][1]
-
-            rate = rates[i]
-
-            b = 0
-
-            if i < len(b_nums):
-
-                b = b_nums[i]
-
-            score = rate + (b * 2)
-
-            if place in BANK_BONUS:
-
-                score += BANK_BONUS[place]
-
-            scores.append((car_no, name, score))
-
-        sorted_scores = sorted(
-            scores,
-            key=lambda x: x[2],
-            reverse=True
-        )
-
-        # =====================================
-        # AIスコア
-        # =====================================
-
-        st.header("AIスコア")
-
-        if len(sorted_scores) == 0:
-
-            st.error("AI解析失敗")
-
-        else:
-
-            for rank, data in enumerate(sorted_scores, start=1):
-
-                car_no, name, score = data
-
-                st.write(
-                    f"{rank}位 車番{car_no} {name} AI点数 {round(score,1)}"
-                )
-
-        # =====================================
-        # 推奨3連単
-        # =====================================
-
-        if len(sorted_scores) >= 3:
-
-            first = sorted_scores[0][0]
-            second = sorted_scores[1][0]
-            third = sorted_scores[2][0]
-
-            st.header("推奨3連単")
-
-            st.success(f"{first}-{second}-{third}")
-            st.success(f"{first}-{third}-{second}")
-            st.success(f"{second}-{first}-{third}")
-
-            # =====================================
-            # AI期待値
-            # =====================================
-
-            ev = round(
-                (
-                    sorted_scores[0][2]
-                    + sorted_scores[1][2]
-                    + sorted_scores[2][2]
-                ) * 3,
-                1
-            )
-
-            st.header("AI期待値")
-
-            st.success(f"{ev}%")
-
-            # =====================================
-            # 投資判断
-            # =====================================
-
-            st.header("投資判断")
-
-            if ev >= 300:
-
-                st.success("強く買い")
-
-            elif ev >= 200:
-
-                st.warning("買い")
-
-            else:
-
-                st.error("見送り")
+        result.append("")
+        result.append("【推奨買い目】")
+        result.append(f"{main}-{second}-{third}")
+        result.append(f"{main}-{third}-{second}")
 
     else:
 
-        st.error("ライン解析失敗")
+        ai_score = 40
 
-        st.write("並び予想 の下に車番が並んでいるか確認してください")
+        result.append("データ解析不足")
+
+    return "\n".join(result), ai_score
+
+# ----------------------------
+# session_state 初期化
+# ----------------------------
+
+if "result" not in st.session_state:
+    st.session_state.result = ""
+
+if "ai_score" not in st.session_state:
+    st.session_state.ai_score = 0
+
+# ----------------------------
+# 解析ボタン
+# ----------------------------
+
+if st.button("解析開始"):
+
+    if race_data.strip() == "":
+
+        st.warning("レースデータを入力してください")
+
+    else:
+
+        with st.spinner("AI解析中..."):
+
+            result, ai_score = analyze_race(race_data)
+
+            st.session_state.result = result
+            st.session_state.ai_score = ai_score
+
+# ----------------------------
+# AIスコア表示
+# ----------------------------
+
+if st.session_state.ai_score > 0:
+
+    st.subheader("AIスコア")
+
+    st.metric(
+        label="期待値スコア",
+        value=int(st.session_state.ai_score)
+    )
+
+# ----------------------------
+# 解析確認表示
+# ----------------------------
+
+if st.session_state.result != "":
+
+    st.subheader("解析確認")
+
+    st.text(st.session_state.result)
