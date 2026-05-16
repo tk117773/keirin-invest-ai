@@ -82,12 +82,36 @@ def extract_place(text):
     return "不明"
 
 # =====================================
-# ライン解析
+# ライン解析（修正版）
 # =====================================
 
 def extract_lines(text):
 
-    nums = re.findall(r'\b[1-9]\b', text)
+    lines = text.split("\n")
+
+    nums = []
+
+    start = False
+
+    for line in lines:
+
+        line = line.strip()
+
+        if "並び予想" in line:
+
+            start = True
+
+            continue
+
+        if start:
+
+            if re.match(r'^[1-9]$', line):
+
+                nums.append(line)
+
+                if len(nums) == 7:
+
+                    break
 
     if len(nums) >= 7:
 
@@ -142,10 +166,6 @@ def extract_rates(text):
 
         line = line.strip()
 
-        if "%" in line:
-
-            continue
-
         nums = re.findall(r'\d+\.\d+', line)
 
         if len(nums) >= 3:
@@ -195,7 +215,7 @@ def extract_b_numbers(text):
     return b_list
 
 # =====================================
-# データ入力
+# 入力欄
 # =====================================
 
 race_data = st.text_area(
@@ -205,7 +225,7 @@ race_data = st.text_area(
 )
 
 # =====================================
-# クリアボタン
+# クリア
 # =====================================
 
 if st.button("クリア"):
@@ -235,9 +255,7 @@ if st.button("AI予想開始"):
         st.header("ライン解析")
 
         st.write(f"本命ライン : {'-'.join(line1)}")
-
         st.write(f"対抗ライン : {'-'.join(line2)}")
-
         st.write(f"単騎 : {single}")
 
         players = extract_players(race_data)
@@ -301,7 +319,7 @@ if st.button("AI予想開始"):
         )
 
         # =====================================
-        # AIスコア表示
+        # AIスコア
         # =====================================
 
         st.header("AIスコア")
@@ -327,17 +345,13 @@ if st.button("AI予想開始"):
         if len(sorted_scores) >= 3:
 
             first = sorted_scores[0][0]
-
             second = sorted_scores[1][0]
-
             third = sorted_scores[2][0]
 
             st.header("推奨3連単")
 
             st.success(f"{first}-{second}-{third}")
-
             st.success(f"{first}-{third}-{second}")
-
             st.success(f"{second}-{first}-{third}")
 
             # =====================================
@@ -379,4 +393,4 @@ if st.button("AI予想開始"):
 
         st.error("ライン解析失敗")
 
-        st.write("並び予想部分を確認してください")
+        st.write("並び予想 の下に車番が並んでいるか確認してください")
