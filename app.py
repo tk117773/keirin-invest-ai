@@ -5,17 +5,10 @@ import re
 # =====================================
 # 1. ページ設定
 # =====================================
-st.set_page_config(
-    page_title="KEIRIN INVEST AI Ultimate",
-    layout="wide"
-)
-
+st.set_page_config(page_title="KEIRIN INVEST AI Ultimate", layout="wide")
 st.title("🚴 KEIRIN INVEST AI Ultimate")
-st.caption("出走表を丸ごとコピー＆ペーストするだけで、AIが選手能力を数値化します。")
 
-# =====================================
-# 2. 全国競輪場補正データ
-# =====================================
+# 競輪場補正
 BANK_BONUS = {
     "函館": 4, "青森": 5, "いわき平": 6, "弥彦": 4, "前橋": 5, "取手": 5,
     "宇都宮": 5, "大宮": 4, "西武園": 4, "京王閣": 3, "立川": 4, "松戸": 4,
@@ -27,187 +20,131 @@ BANK_BONUS = {
 }
 
 # =====================================
-# 3. 解析・計算ロジック
+# 2. 最強解析ロジック（正規表現を極限まで柔軟化）
 # =====================================
 
-def extract_place(text):
-    for place in BANK_BONUS.keys():
-        if place in text:
-            return place
-    return "不明"
-
-def extract_lines(text):
-    lines = text.split("\n")
-    nums = []
-    start = False
-    for line in lines:
-        if "並び予想" in line:
-            start = True
-            continue
-        if start:
-            val = line.strip()
-            if re.match(r'^[1-9]$', val):
-                nums.append(val)
-            elif len(nums) > 0:
-                break
-    
-    if len(nums) >= 9: return (nums[0:3], nums[3:6], nums[6:9])
-    if len(nums) >= 7: return (nums[0:3], nums[3:5], nums[5:7])
-    return (nums, [], [])
-
-def extract_players(text):
+def extract_players_final(text):
     """
-    複数行にまたがる出走表からデータを抽出する強化版ロジック
+    行単位ではなく、テキスト全体から正規表現で選手情報をぶっこ抜く
     """
-    players_dict = {}
-    lines = [line.strip() for line in text.split("\n") if line.strip()]
+    players = []
     
-    current_car_num = None
+    # 1. まず「車番 選手名 (年齢)」のセットをすべて探す
+    # 形式: "1 1 岩津裕介(44)" や "1 岩津裕介 (44)" など
+    player_blocks = re.findall(r'([1-9])\s+([^\s\d\(\)（）]+)[\s\n]*[\(（](\d{2})[\)）]', text)
     
-    for line in lines:
-        # 選手名・車番・年齢の行を特定 (例: "1 1 岩津裕介(44)")
-        name_match = re.search(r'([1-9])\s+([^\s\d\(\)]+)\((\d{2})\)', line)
-        if name_match:
-            current_car_num = name_match.group(1)
-            players_dict[current_car_num] = {
-                "車番": current_car_num,
-                "選手名": name_match.group(2),
-                "年齢": int(name_match.group(3)),
-                "S": 0, "B": 0, "逃": 0, "捲": 0, "差": 0, "マ": 0,
-                "勝率": 0.0, "連対率": 0.0, "3連対率": 0.0, "AIスコア": 0.0
-            }
-            continue
-
-        # 車番が紐付いている状態で、数値データを探索
-        if current_car_num:
-            nums = re.findall(r"\d+\.\d+|\d+", line)
-            if not nums: continue
-
-            # 決まり手行 (整数が並んでいる / 対戦成績のハイフン等が含まれない)
-            if len(nums) >= 6 and all("." not in n for n in nums) and "-" not in line:
-                players_dict[current_car_num].update({
-                    "S": int(nums[0]), "B": int(nums[1]),
-                    "逃": int(nums[2]), "捲": int(nums[3]),
-                    "差": int(nums[4]), "マ": int(nums[5])
-                })
+    # 2. テキストを「選手名」で分割して、それぞれの成績を個別に探す
+    # これにより、名前と数字が離れていても確実に紐付く
+    for i in range(len(player_blocks)):
+        car_num, name, age = player_blocks[i]
+        
+        # この選手のデータが開始される位置を探す
+        start_pos = text.find(name)
+        # 次の選手までのテキストを切り出す（最後の選手なら最後まで）
+        if i + 1 < len(player_blocks):
+            next_name = player_blocks[i+1][1]
+            end_pos = text.find(next_name)
+            target_text = text[start_pos:end_pos]
+        else:
+            target_text = text[start_pos:]
+        
+        p_data = {
+            "車番": car_num, "選手名": name, "年齢": int(age),
+            "S": 0, "B": 0, "逃": 0, "捲": 0, "差": 0, "マ": 0,
+            "勝率": 0.0, "連対率": 0.0, "3連対率": 0.0, "AIスコア": 0.0
+        }
+        
+        # 切り出したテキストから数値を抽出
+        nums = re.findall(r"\d+\.\d+|\d+", target_text)
+        
+        # 小数点がある数字（確率）を抽出
+        floats = [float(n) for n in nums if "." in n]
+        # 小数点がない数字（決まり手や年齢、着外数など）を抽出
+        ints = [int(n) for n in nums if "." not in n]
+        
+        # 決まり手（S, B, 逃, 捲, 差, マ）の抽出
+        # 選手名の直後に現れる5〜7個程度の整数を狙う
+        relevant_ints = [n for n in ints if n != int(age) and n < 50] # 年齢やギア比を除外
+        if len(relevant_ints) >= 6:
+            p_data["S"] = relevant_ints[0]
+            p_data["B"] = relevant_ints[1]
+            p_data["逃"] = relevant_ints[2]
+            p_data["捲"] = relevant_ints[3]
+            p_data["差"] = relevant_ints[4]
+            p_data["マ"] = relevant_ints[5]
             
-            # 成績行 (勝率などの小数点が含まれる)
-            elif any("." in n for n in nums):
-                floats = [float(n) for n in nums if "." in n]
-                if len(floats) >= 3:
-                    players_dict[current_car_num].update({
-                        "勝率": floats[0], "連対率": floats[1], "3連対率": floats[2]
-                    })
-                    # 勝率まで取れたら一旦その選手は完了
-                    current_car_num = None 
-
-    return list(players_dict.values())
+        # 確率（勝率, 連対率, 3連対率）
+        if len(floats) >= 3:
+            p_data["勝率"] = floats[0]
+            p_data["連対率"] = floats[1]
+            p_data["3連対率"] = floats[2]
+            
+        players.append(p_data)
+        
+    return players
 
 def calculate_scores(players, place):
     for p in players:
         score = 0
-        # 成績スコア（重み付け）
         score += p["勝率"] * 2.5 + p["連対率"] * 1.8 + p["3連対率"] * 1.2
-        # 脚質・積極性スコア
         score += p["B"] * 3.0 + p["逃"] * 2.5 + p["捲"] * 2.5 + p["差"] * 1.0
-        # 年齢補正（若手の機動力を高く評価）
         if p["年齢"] <= 30: score += 25
         elif p["年齢"] <= 35: score += 12
-        # バンク補正
         score += BANK_BONUS.get(place, 0)
-        
         p["AIスコア"] = round(score, 1)
-    
     return sorted(players, key=lambda x: x["AIスコア"], reverse=True)
 
-def generate_bets(sorted_p):
-    if len(sorted_p) < 4: return None
-    a = sorted_p[0]["車番"]
-    b = sorted_p[1]["車番"]
-    c = sorted_p[2]["車番"]
-    d = sorted_p[3]["車番"]
-    
-    return {
-        "本線": [f"{a}-{b}-{c}", f"{a}-{b}-{d}", f"{a}-{c}-{b}"],
-        "中穴": [f"{b}-{a}-{c}", f"{c}-{a}-{b}", f"{a}-{d}-{b}"],
-        "大穴": [f"{c}-{b}-{a}", f"{d}-{a}-{b}", f"{b}-{c}-{d}"]
-    }
-
 # =====================================
-# 4. 画面レイアウト
+# 3. Streamlit UI
 # =====================================
 
-race_data = st.text_area("競輪データをここに貼り付けてください", height=400)
+# 入力エリア
+race_data = st.text_area("競輪データを貼り付けてください（出走表まるごと）", height=400)
 
-col1, col2 = st.columns(2)
-with col1:
-    btn_start = st.button("AI予想を開始する", type="primary", use_container_width=True)
-with col2:
+c1, c2 = st.columns(2)
+with c1:
+    btn = st.button("AI解析実行", type="primary", use_container_width=True)
+with c2:
     if st.button("リセット", use_container_width=True):
         st.rerun()
 
-if btn_start:
+if btn:
     if not race_data.strip():
-        st.warning("解析するデータを入力してください。")
+        st.warning("データが空です。")
     else:
-        with st.spinner("AIデータ解析中..."):
-            place = extract_place(race_data)
-            player_list = extract_players(race_data)
-            line_info = extract_lines(race_data)
+        place = "不明"
+        for k in BANK_BONUS.keys():
+            if k in race_data: place = k
             
-            if not player_list:
-                st.error("選手情報を読み取れませんでした。コピー範囲に『選手名(年齢)』が含まれているか確認してください。")
-            else:
-                sorted_players = calculate_scores(player_list, place)
-                
-                # 表示セクション
-                st.success(f"解析成功！ 開催場: {place}")
+        players = extract_players_final(race_data)
+        
+        if not players:
+            st.error("選手が見つかりませんでした。貼り付けたデータに『選手名(年齢)』の形式があるか確認してください。")
+        else:
+            sorted_p = calculate_scores(players, place)
+            
+            st.success(f"解析完了！ 開催場: {place} / 抽出選手数: {len(sorted_p)}名")
 
-                # 1. AIスコアランキング（ここが反映されるようになります）
-                st.subheader("📊 AIスコアランキング")
-                df = pd.DataFrame(sorted_players)
-                # 表示する列を指定
-                display_cols = ["車番", "選手名", "年齢", "AIスコア", "勝率", "連対率", "S", "B", "逃", "捲", "差", "マ"]
-                st.dataframe(df[display_cols], use_container_width=True)
+            # 📊 メインランキング表
+            st.subheader("📊 AIスコアランキング")
+            df = pd.DataFrame(sorted_p)
+            st.dataframe(df[["車番", "選手名", "年齢", "AIスコア", "勝率", "連対率", "S", "B", "逃", "捲", "差", "マ"]], use_container_width=True)
 
-                st.divider()
+            # 🎯 最終印と買い目
+            st.divider()
+            col_a, col_b = st.columns(2)
+            
+            with col_a:
+                st.subheader("📝 AI最終印")
+                marks = ["◎", "○", "▲", "☆", "△"]
+                for i, p in enumerate(sorted_p[:5]):
+                    st.write(f"**{marks[i]}** {p['車番']}番 {p['選手名']} ({p['AIスコア']}点)")
+            
+            with col_b:
+                st.subheader("🎯 3連単 推奨買い目")
+                if len(sorted_p) >= 4:
+                    a, b, c, d = [p["車番"] for p in sorted_p[:4]]
+                    st.info(f"**本線**: {a}-{b}-{c}, {a}-{b}-{d}, {a}-{c}-{b}")
+                    st.warning(f"**穴**: {b}-{a}-{c}, {c}-{a}-{b}, {d}-{a}-{b}")
 
-                # 2. 印と買い目
-                res_col1, res_col2 = st.columns(2)
-                
-                with res_col1:
-                    st.subheader("📝 AI最終印")
-                    marks = ["◎ 本命", "○ 対抗", "▲ 単穴", "☆ 特注", "△ 連下"]
-                    for i, p in enumerate(sorted_players[:5]):
-                        st.write(f"**{marks[i]}**: {p['車番']}番 {p['選手名']} ({p['AIスコア']}点)")
-
-                with res_col2:
-                    st.subheader("🎯 推奨買い目 (3連単)")
-                    bets = generate_bets(sorted_players)
-                    if bets:
-                        st.info(f"**本線**: {', '.join(bets['本線'])}")
-                        st.warning(f"**中穴**: {', '.join(bets['中穴'])}")
-                        st.error(f"**大穴**: {', '.join(bets['大穴'])}")
-
-                # 3. 展開と判断
-                st.divider()
-                inf_col1, inf_col2 = st.columns(2)
-                
-                with inf_col1:
-                    st.subheader("🚥 展開予想（並び）")
-                    if any(line_info):
-                        st.code(" / ".join(["-".join(l) for l in line_info if l]))
-                    else:
-                        st.write("データなし")
-
-                with inf_col2:
-                    st.subheader("💰 AI投資判断")
-                    avg_top3 = sum(p["AIスコア"] for p in sorted_players[:3]) / 3
-                    if avg_top3 > 120:
-                        st.success("🔥 勝負レース: 上位勢の能力が抜けています")
-                    elif avg_top3 > 80:
-                        st.warning("⚖️ 標準レース: 展開次第で波乱の可能性あり")
-                    else:
-                        st.error("🛑 難解レース: 見送り推奨、または少額で")
-
-st.caption("※本ツールはデータの解析結果を提供するものであり、的中を保証するものではありません。車券の購入は自己責任でお願いします。")
+st.caption("※本ツールはデータの解析結果を提供するものであり、車券の的中を保証するものではありません。購入は自己責任でお願いいたします。")
