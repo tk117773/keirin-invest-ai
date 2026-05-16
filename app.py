@@ -176,7 +176,7 @@ if st.button("AI予想開始"):
         st.write(f"対抗ライン：{'-'.join(line2)}")
         st.write(f"単騎：{single}")
 
-        st.subheader("AIスコア")
+                st.subheader("AIスコア")
 
         ai_scores = {}
 
@@ -198,7 +198,7 @@ if st.button("AI予想開始"):
             reverse=True
         )
 
-       if len(sorted_scores) == 0:
+        if len(sorted_scores) == 0:
 
             st.error("選手データ解析失敗")
 
