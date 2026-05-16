@@ -11,7 +11,7 @@ st.set_page_config(
 )
 
 st.title("🚴 KEIRIN INVEST AI Ultimate")
-st.caption("出走表データを貼り付けるだけで、AIがスコア算出と買い目生成を行います。")
+st.caption("出走表を丸ごとコピー＆ペーストするだけで、AIが選手能力を数値化します。")
 
 # =====================================
 # 2. 全国競輪場補正データ
@@ -31,14 +31,12 @@ BANK_BONUS = {
 # =====================================
 
 def extract_place(text):
-    """テキストから開催場所を抽出"""
     for place in BANK_BONUS.keys():
         if place in text:
             return place
     return "不明"
 
 def extract_lines(text):
-    """並び予想からラインを抽出"""
     lines = text.split("\n")
     nums = []
     start = False
@@ -53,13 +51,14 @@ def extract_lines(text):
             elif len(nums) > 0:
                 break
     
-    # 車券構成に応じた分割
     if len(nums) >= 9: return (nums[0:3], nums[3:6], nums[6:9])
     if len(nums) >= 7: return (nums[0:3], nums[3:5], nums[5:7])
     return (nums, [], [])
 
 def extract_players(text):
-    """複数行にわたる出走表から選手データを抽出"""
+    """
+    複数行にまたがる出走表からデータを抽出する強化版ロジック
+    """
     players_dict = {}
     lines = [line.strip() for line in text.split("\n") if line.strip()]
     
@@ -75,16 +74,16 @@ def extract_players(text):
                 "選手名": name_match.group(2),
                 "年齢": int(name_match.group(3)),
                 "S": 0, "B": 0, "逃": 0, "捲": 0, "差": 0, "マ": 0,
-                "勝率": 0.0, "連対率": 0.0, "3連対率": 0.0
+                "勝率": 0.0, "連対率": 0.0, "3連対率": 0.0, "AIスコア": 0.0
             }
             continue
 
-        # 選手が特定されている間、続く行から数値を抽出
+        # 車番が紐付いている状態で、数値データを探索
         if current_car_num:
             nums = re.findall(r"\d+\.\d+|\d+", line)
             if not nums: continue
 
-            # 決まり手行 (整数が並んでいる。対戦成績のハイフン等が含まれないこと)
+            # 決まり手行 (整数が並んでいる / 対戦成績のハイフン等が含まれない)
             if len(nums) >= 6 and all("." not in n for n in nums) and "-" not in line:
                 players_dict[current_car_num].update({
                     "S": int(nums[0]), "B": int(nums[1]),
@@ -99,23 +98,22 @@ def extract_players(text):
                     players_dict[current_car_num].update({
                         "勝率": floats[0], "連対率": floats[1], "3連対率": floats[2]
                     })
-                    # 一人分のデータが揃うポイント（勝率）でリセット
+                    # 勝率まで取れたら一旦その選手は完了
                     current_car_num = None 
 
     return list(players_dict.values())
 
 def calculate_scores(players, place):
-    """AIスコアリング"""
     for p in players:
         score = 0
-        # 成績スコア
-        score += p["勝率"] * 2.2 + p["連対率"] * 1.5 + p["3連対率"] * 1.0
-        # 積極性・脚質スコア
-        score += p["B"] * 2.8 + p["逃"] * 2.5 + p["捲"] * 2.2 + p["差"] * 1.2
-        # 年齢補正（若手の機動力重視）
-        if p["年齢"] <= 30: score += 20
-        elif p["年齢"] <= 35: score += 10
-        # バンク特製補正
+        # 成績スコア（重み付け）
+        score += p["勝率"] * 2.5 + p["連対率"] * 1.8 + p["3連対率"] * 1.2
+        # 脚質・積極性スコア
+        score += p["B"] * 3.0 + p["逃"] * 2.5 + p["捲"] * 2.5 + p["差"] * 1.0
+        # 年齢補正（若手の機動力を高く評価）
+        if p["年齢"] <= 30: score += 25
+        elif p["年齢"] <= 35: score += 12
+        # バンク補正
         score += BANK_BONUS.get(place, 0)
         
         p["AIスコア"] = round(score, 1)
@@ -123,7 +121,6 @@ def calculate_scores(players, place):
     return sorted(players, key=lambda x: x["AIスコア"], reverse=True)
 
 def generate_bets(sorted_p):
-    """推奨買い目の生成"""
     if len(sorted_p) < 4: return None
     a = sorted_p[0]["車番"]
     b = sorted_p[1]["車番"]
@@ -137,44 +134,45 @@ def generate_bets(sorted_p):
     }
 
 # =====================================
-# 4. メイン画面レイアウト
+# 4. 画面レイアウト
 # =====================================
 
-# データ入力
-race_data = st.text_area("ここに競輪データを貼り付けてください", height=400)
+race_data = st.text_area("競輪データをここに貼り付けてください", height=400)
 
 col1, col2 = st.columns(2)
 with col1:
-    execute = st.button("AI予想を開始する", type="primary", use_container_width=True)
+    btn_start = st.button("AI予想を開始する", type="primary", use_container_width=True)
 with col2:
     if st.button("リセット", use_container_width=True):
         st.rerun()
 
-if execute:
+if btn_start:
     if not race_data.strip():
         st.warning("解析するデータを入力してください。")
     else:
-        with st.spinner("AI解析および展開予想を算出中..."):
+        with st.spinner("AIデータ解析中..."):
             place = extract_place(race_data)
-            line_info = extract_lines(race_data)
             player_list = extract_players(race_data)
+            line_info = extract_lines(race_data)
             
             if not player_list:
-                st.error("選手情報を読み取れませんでした。出走表の『枠番 車番 選手名(年齢)』が含まれるようにコピーしてください。")
+                st.error("選手情報を読み取れませんでした。コピー範囲に『選手名(年齢)』が含まれているか確認してください。")
             else:
                 sorted_players = calculate_scores(player_list, place)
                 
-                # 結果表示
-                st.success(f"解析完了: {place}競輪場")
-                
-                # 1. スコアランキング（表）
-                st.subheader("📊 AI解析スコアランキング")
+                # 表示セクション
+                st.success(f"解析成功！ 開催場: {place}")
+
+                # 1. AIスコアランキング（ここが反映されるようになります）
+                st.subheader("📊 AIスコアランキング")
                 df = pd.DataFrame(sorted_players)
-                df_display = df[["車番", "選手名", "年齢", "AIスコア", "勝率", "連対率", "S", "B", "逃", "捲", "差", "マ"]]
-                st.dataframe(df_display, use_container_width=True)
-                
-                # 2. 最終印と推奨買い目
+                # 表示する列を指定
+                display_cols = ["車番", "選手名", "年齢", "AIスコア", "勝率", "連対率", "S", "B", "逃", "捲", "差", "マ"]
+                st.dataframe(df[display_cols], use_container_width=True)
+
                 st.divider()
+
+                # 2. 印と買い目
                 res_col1, res_col2 = st.columns(2)
                 
                 with res_col1:
@@ -182,35 +180,34 @@ if execute:
                     marks = ["◎ 本命", "○ 対抗", "▲ 単穴", "☆ 特注", "△ 連下"]
                     for i, p in enumerate(sorted_players[:5]):
                         st.write(f"**{marks[i]}**: {p['車番']}番 {p['選手名']} ({p['AIスコア']}点)")
-                
+
                 with res_col2:
                     st.subheader("🎯 推奨買い目 (3連単)")
                     bets = generate_bets(sorted_players)
                     if bets:
-                        st.write("**本線（期待値高）**")
-                        st.info(" , ".join(bets["本線"]))
-                        st.write("**狙い（中穴）**")
-                        st.warning(" , ".join(bets["中穴"]))
-                        st.write("**穴（波乱）**")
-                        st.error(" , ".join(bets["大穴"]))
+                        st.info(f"**本線**: {', '.join(bets['本線'])}")
+                        st.warning(f"**中穴**: {', '.join(bets['中穴'])}")
+                        st.error(f"**大穴**: {', '.join(bets['大穴'])}")
 
-                # 3. 展開予想
-                if any(line_info):
+                # 3. 展開と判断
+                st.divider()
+                inf_col1, inf_col2 = st.columns(2)
+                
+                with inf_col1:
                     st.subheader("🚥 展開予想（並び）")
-                    line_str = " / ".join(["-".join(l) for l in line_info if l])
-                    st.code(line_str, language="text")
+                    if any(line_info):
+                        st.code(" / ".join(["-".join(l) for l in line_info if l]))
+                    else:
+                        st.write("データなし")
 
-                # 4. 投資判断
-                avg_score = sum(p["AIスコア"] for p in sorted_players[:3]) / 3
-                st.subheader("💰 AI投資判断")
-                if avg_score > 130:
-                    st.success("【SS判断】圧倒的本命レース。厚めの投資を推奨。")
-                elif avg_score > 90:
-                    st.info("【A判断】実力伯仲。展開次第で絞って勝負。")
-                else:
-                    st.warning("【B判断】混戦模様。無理な投資は避け、広めに構えるか見送り推奨。")
+                with inf_col2:
+                    st.subheader("💰 AI投資判断")
+                    avg_top3 = sum(p["AIスコア"] for p in sorted_players[:3]) / 3
+                    if avg_top3 > 120:
+                        st.success("🔥 勝負レース: 上位勢の能力が抜けています")
+                    elif avg_top3 > 80:
+                        st.warning("⚖️ 標準レース: 展開次第で波乱の可能性あり")
+                    else:
+                        st.error("🛑 難解レース: 見送り推奨、または少額で")
 
-# =====================================
-# 5. フッター
-# =====================================
 st.caption("※本ツールはデータの解析結果を提供するものであり、的中を保証するものではありません。車券の購入は自己責任でお願いします。")
