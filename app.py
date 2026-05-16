@@ -56,22 +56,14 @@ def extract_place(text):
 
 def extract_lines(text):
 
-    lines = []
+    nums = re.findall(r'[1-9]', text)
 
-    for line in text.split("\n"):
-
-        nums = re.findall(r'\b[1-9]\b', line)
-
-        if len(nums) >= 3:
-
-            lines.extend(nums)
-
-    if len(lines) >= 7:
+    if len(nums) >= 7:
 
         return (
-            lines[0:3],
-            lines[3:6],
-            lines[6]
+            nums[0:3],
+            nums[3:6],
+            nums[6]
         )
 
     return None
@@ -279,7 +271,11 @@ if st.button("AI予想開始"):
         for bet in bets:
 
             st.write(bet)
+    else:
 
+        st.error("ライン解析失敗")
+
+        st.write("並び予想部分を確認してください")
 st.subheader("結果登録")
 
 race_name = st.text_input("レース名")
