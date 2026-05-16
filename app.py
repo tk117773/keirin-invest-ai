@@ -202,7 +202,11 @@ if st.button("AI予想開始"):
 
             st.write(f"{rank}位 {name} AI点数 {score}")
 
-        top_score = sorted_scores[0][1]
+        if len(sorted_scores) == 0:
+
+    st.error("選手データ解析失敗")
+
+    st.stop()
 
         ev = calc_expected_value(
             top_score,
