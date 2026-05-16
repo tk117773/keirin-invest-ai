@@ -198,8 +198,7 @@ if st.button("AI予想開始"):
             reverse=True
         )
 
-        for rank, (name, score) in enumerate(sorted_scores, start=1):
-            for rank, (name, score) in enumerate(sorted_scores, start=1):
+                for rank, (name, score) in enumerate(sorted_scores, start=1):
 
             st.write(f"{rank}位 {name} AI点数 {score}")
 
