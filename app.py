@@ -13,7 +13,8 @@ st.title("🚴 KEIRIN INVEST AI Version8")
 DB_FILE = "results.csv"
 
 if "race_data" not in st.session_state:
-    st.session_state.race_data = ""
+
+    st.session_state["race_data"] = ""
 
 race_data = st.text_area(
     "競輪データ貼付",
@@ -22,7 +23,9 @@ race_data = st.text_area(
 )
 
 if st.button("クリア"):
-    st.session_state.race_data = ""
+
+    st.session_state["race_data"] = ""
+
     st.rerun()
 
 odds_input = st.number_input(
