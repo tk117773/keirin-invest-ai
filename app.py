@@ -113,7 +113,7 @@ def extract_lines(text):
 
                 nums.append(line)
 
-    # 9車
+    # 9車対応
     if len(nums) >= 9:
 
         return (
@@ -122,7 +122,7 @@ def extract_lines(text):
             nums[6:9]
         )
 
-    # 7車
+    # 7車対応
     elif len(nums) >= 7:
 
         return (
@@ -134,7 +134,7 @@ def extract_lines(text):
     return None
 
 # =====================================
-# 選手解析（完全修正版）
+# 選手解析（完全安定版）
 # =====================================
 
 def extract_players(text):
@@ -143,11 +143,11 @@ def extract_players(text):
 
     lines = text.split("\n")
 
-    current_player = None
+    i = 0
 
-    for line in lines:
+    while i < len(lines):
 
-        line = line.strip()
+        line = lines[i].strip()
 
         # =====================================
         # 選手開始行
@@ -160,12 +160,7 @@ def extract_players(text):
 
         if match:
 
-            # 前選手保存
-            if current_player:
-
-                players.append(current_player)
-
-            current_player = {
+            player = {
 
                 "車番": match.group(2),
                 "選手名": match.group(3).strip(),
@@ -183,38 +178,42 @@ def extract_players(text):
                 "3連対率": 0.0
             }
 
-            continue
+            # =====================================
+            # 次行を成績行として解析
+            # =====================================
 
-        # =====================================
-        # 数値解析
-        # =====================================
+            if i + 1 < len(lines):
 
-        nums = re.findall(r"\d+\.\d+|\d+", line)
+                next_line = lines[i + 1].strip()
 
-        if len(nums) >= 9 and current_player:
+                nums = re.findall(
+                    r"\d+\.\d+|\d+",
+                    next_line
+                )
 
-            try:
+                if len(nums) >= 9:
 
-                current_player["S"] = int(nums[0])
-                current_player["B"] = int(nums[1])
+                    try:
 
-                current_player["逃"] = int(nums[2])
-                current_player["捲"] = int(nums[3])
-                current_player["差"] = int(nums[4])
-                current_player["マ"] = int(nums[5])
+                        player["S"] = int(nums[0])
+                        player["B"] = int(nums[1])
 
-                current_player["勝率"] = float(nums[6])
-                current_player["連対率"] = float(nums[7])
-                current_player["3連対率"] = float(nums[8])
+                        player["逃"] = int(nums[2])
+                        player["捲"] = int(nums[3])
+                        player["差"] = int(nums[4])
+                        player["マ"] = int(nums[5])
 
-            except:
+                        player["勝率"] = float(nums[6])
+                        player["連対率"] = float(nums[7])
+                        player["3連対率"] = float(nums[8])
 
-                pass
+                    except:
 
-    # 最後追加
-    if current_player:
+                        pass
 
-        players.append(current_player)
+            players.append(player)
+
+        i += 1
 
     return players
 
@@ -233,14 +232,14 @@ def calculate_scores(players, place):
         score += p.get("連対率", 0) * 1.5
         score += p.get("3連対率", 0)
 
-        # 脚質補正
+        # 脚質
         score += p.get("B", 0) * 2.5
         score += p.get("逃", 0) * 2
         score += p.get("捲", 0) * 2.2
         score += p.get("差", 0) * 1.8
         score += p.get("マ", 0)
 
-        # 若手機動型
+        # 若手機動型補正
         if p.get("年齢", 50) <= 35:
 
             score += 5
@@ -296,10 +295,7 @@ def generate_bets(players_sorted):
         else c
     )
 
-    # =====================================
     # 本線6点
-    # =====================================
-
     bets["本線"] = [
 
         f"{a}-{b}-{c}",
@@ -310,10 +306,7 @@ def generate_bets(players_sorted):
         f"{b}-{c}-{a}"
     ]
 
-    # =====================================
     # 中穴6点
-    # =====================================
-
     bets["中穴"] = [
 
         f"{c}-{a}-{b}",
@@ -324,10 +317,7 @@ def generate_bets(players_sorted):
         f"{d}-{b}-{c}"
     ]
 
-    # =====================================
     # 大穴3点
-    # =====================================
-
     bets["大穴"] = [
 
         f"{e}-{a}-{b}",
@@ -530,6 +520,14 @@ if st.button("AI予想開始"):
                     players,
                     place
                 )
+
+                # =====================================
+                # 生データ確認
+                # =====================================
+
+                st.header("解析確認（生データ）")
+
+                st.write(players_sorted)
 
                 # =====================================
                 # AIスコアランキング
