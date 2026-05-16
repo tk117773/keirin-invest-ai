@@ -11,10 +11,18 @@ st.set_page_config(
 st.title("🚴 KEIRIN INVEST AI ULTIMATE")
 st.write("Version 6")
 
+if "race_data" not in st.session_state:
+    st.session_state.race_data = ""
+
 race_data = st.text_area(
     "競輪データ貼付",
-    height=500
+    height=500,
+    key="race_data"
 )
+
+if st.button("クリア"):
+    st.session_state.race_data = ""
+    st.rerun()
 
 DB_FILE = "results.csv"
 
