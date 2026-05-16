@@ -1,5 +1,26 @@
 import streamlit as st
 import re
+def extract_place(text):
+
+    places = [
+        "函館","青森","いわき平","弥彦","前橋",
+        "取手","宇都宮","大宮","西武園","京王閣",
+        "立川","松戸","千葉","川崎","平塚",
+        "小田原","伊東","静岡","名古屋","岐阜",
+        "大垣","豊橋","富山","松阪","四日市",
+        "福井","奈良","向日町","和歌山","岸和田",
+        "玉野","広島","防府","高松","小松島",
+        "高知","松山","小倉","久留米","武雄",
+        "佐世保","別府","熊本"
+    ]
+
+    for place in places:
+
+        if place in text:
+
+            return place
+
+    return "不明"
 import pandas as pd
 import os
 
