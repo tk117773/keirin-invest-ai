@@ -4,11 +4,11 @@ import pandas as pd
 import os
 
 st.set_page_config(
-    page_title="KEIRIN INVEST AI FINAL",
+    page_title="KEIRIN AI Version8",
     layout="wide"
 )
 
-st.title("🚴 KEIRIN INVEST AI FINAL")
+st.title("🚴 KEIRIN INVEST AI Version8")
 
 DB_FILE = "results.csv"
 
@@ -37,7 +37,9 @@ BANK_BONUS = {
     "平塚": 3,
     "松戸": 4,
     "小田原": 2,
-    "高知": 6
+    "高知": 6,
+    "岐阜": 5,
+    "防府": 4
 }
 
 def extract_place(text):
@@ -51,14 +53,22 @@ def extract_place(text):
 
 def extract_lines(text):
 
-    numbers = re.findall(r'\b[1-9]\b', text)
+    lines = []
 
-    if len(numbers) >= 7:
+    for line in text.split("\n"):
+
+        nums = re.findall(r'\b[1-9]\b', line)
+
+        if len(nums) >= 3:
+
+            lines.extend(nums)
+
+    if len(lines) >= 7:
 
         return (
-            numbers[0:3],
-            numbers[3:6],
-            numbers[6]
+            lines[0:3],
+            lines[3:6],
+            lines[6]
         )
 
     return None
@@ -67,26 +77,50 @@ def extract_players(text):
 
     pattern = r'([1-9])\s+[1-9]\s+([^\(]+)\('
 
-    return re.findall(pattern, text)
+    result = re.findall(pattern, text)
+
+    return result
 
 def extract_rates(text):
 
-    return re.findall(r'\d+\.\d+', text)
+    rates = re.findall(r'\d+\.\d+', text)
 
+    clean_rates = []
 
-def calc_score(rate, b, bonus):
+    for r in rates:
+
+        value = float(r)
+
+        if 0 < value <= 100:
+
+            clean_rates.append(value)
+
+    return clean_rates
+
+def ai_structure_analysis(player_name):
 
     score = 0
 
-    score += float(rate) * 1.8
-    score += int(b) * 4
+    if "逃" in player_name:
+        score += 10
+
+    if "追" in player_name:
+        score += 5
+
+    return score
+
+def calc_score(rate, bonus):
+
+    score = 0
+
+    score += float(rate) * 1.5
     score += bonus
 
     return round(score, 1)
 
 def calc_expected_value(score, odds):
 
-    win_prob = min(score / 120, 0.9)
+    win_prob = min(score / 100, 0.9)
 
     ev = round(win_prob * odds * 100, 1)
 
@@ -138,8 +172,6 @@ if st.button("AI予想開始"):
 
     rates = extract_rates(race_data)
 
-    b_counts = [5] * len(players)
-
     if result:
 
         line1, line2, single = result
@@ -148,6 +180,7 @@ if st.button("AI予想開始"):
         st.write(place)
 
         st.subheader("ライン解析")
+
         st.write(f"本命ライン：{'-'.join(line1)}")
         st.write(f"対抗ライン：{'-'.join(line2)}")
         st.write(f"単騎：{single}")
@@ -157,18 +190,25 @@ if st.button("AI予想開始"):
         ai_scores = {}
 
         count = min(
-    len(players),
-    len(rates)
-)
+            len(players),
+            len(rates)
+        )
+
+        if count == 0:
+
+            st.error("解析失敗")
+
+            st.stop()
 
         for i in range(count):
 
             name = players[i][1].strip()
 
+            structure_bonus = ai_structure_analysis(name)
+
             score = calc_score(
                 rates[i],
-                b_counts[i],
-                bank_bonus
+                bank_bonus + structure_bonus
             )
 
             ai_scores[name] = score
@@ -178,11 +218,6 @@ if st.button("AI予想開始"):
             key=lambda x: x[1],
             reverse=True
         )
-
-        if len(sorted_scores) == 0:
-
-            st.error("選手データ解析失敗")
-            st.stop()
 
         for rank, (name, score) in enumerate(sorted_scores, start=1):
 
@@ -198,26 +233,33 @@ if st.button("AI予想開始"):
         st.subheader("人気危険度")
 
         if odds_input <= 3:
-            st.error("過剰人気注意")
+
+            st.error("過剰人気")
 
         elif odds_input <= 8:
-            st.warning("人気ゾーン")
+
+            st.warning("標準人気")
 
         else:
-            st.success("穴期待値あり")
+
+            st.success("穴期待値")
 
         st.subheader("AI期待値")
-        st.success(f"期待値：{ev}%")
+
+        st.success(f"{ev}%")
 
         st.subheader("投資判断")
 
         if ev >= 130:
+
             st.success("強く買い")
 
         elif ev >= 100:
+
             st.warning("買い候補")
 
         else:
+
             st.error("見送り")
 
         st.subheader("推奨3連単")
@@ -227,10 +269,12 @@ if st.button("AI予想開始"):
             f"{line1[0]}-{line1[1]}-{line2[0]}",
             f"{line2[0]}-{line2[1]}-{line1[1]}",
             f"{single}-{line1[1]}-{line1[0]}",
-            f"{line1[1]}-{single}-{line1[0]}"
+            f"{line1[1]}-{single}-{line1[0]}",
+            f"{single}-{line2[0]}-{line1[1]}"
         ]
 
         for bet in bets:
+
             st.write(bet)
 
 st.subheader("結果登録")
@@ -269,7 +313,3 @@ if not df.empty:
     df["累計収支"] = df["profit"].cumsum()
 
     st.dataframe(df)
-
-    st.subheader("累計収支")
-
-    st.write(df["累計収支"].tolist())
