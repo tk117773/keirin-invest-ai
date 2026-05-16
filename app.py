@@ -73,26 +73,6 @@ def extract_rates(text):
 
     return re.findall(r'\d+\.\d+', text)
 
-def extract_b(text):
-
-    b_list = []
-
-    lines = text.split("\n")
-
-    for line in lines:
-
-        cols = line.split()
-
-        if len(cols) > 10:
-
-            try:
-                b = int(cols[4])
-                b_list.append(b)
-
-            except:
-                pass
-
-    return b_list
 
 def calc_score(rate, b, bonus):
 
@@ -158,7 +138,7 @@ if st.button("AI予想開始"):
 
     rates = extract_rates(race_data)
 
-    b_counts = extract_b(race_data)
+    b_counts = [5] * len(players)
 
     if result:
 
@@ -177,10 +157,9 @@ if st.button("AI予想開始"):
         ai_scores = {}
 
         count = min(
-            len(players),
-            len(rates),
-            len(b_counts)
-        )
+    len(players),
+    len(rates)
+)
 
         for i in range(count):
 
