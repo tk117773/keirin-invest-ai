@@ -113,9 +113,6 @@ def extract_players(text):
 
         line = line.strip()
 
-        # 例:
-        # 1 1 福元啓太(29)
-
         match = re.match(
             r'^(\d+)\s+(\d+)\s+([^\(]+)\(',
             line
@@ -143,9 +140,15 @@ def extract_rates(text):
 
     for line in lines:
 
+        line = line.strip()
+
+        if "%" in line:
+
+            continue
+
         nums = re.findall(r'\d+\.\d+', line)
 
-        if len(nums) >= 1:
+        if len(nums) >= 3:
 
             try:
 
@@ -175,13 +178,15 @@ def extract_b_numbers(text):
 
         nums = re.findall(r'\d+', line)
 
-        if len(nums) >= 6:
+        if len(nums) >= 8:
 
             try:
 
                 b = int(nums[3])
 
-                b_list.append(b)
+                if 0 <= b <= 30:
+
+                    b_list.append(b)
 
             except:
 
@@ -241,14 +246,27 @@ if st.button("AI予想開始"):
 
         b_nums = extract_b_numbers(race_data)
 
-        # デバッグ表示
-        st.subheader("解析確認")
+        # =====================================
+        # 解析確認
+        # =====================================
 
-        st.write("選手:", players)
+        st.header("解析確認")
 
-        st.write("勝率:", rates)
+        st.write("選手数")
+        st.write(len(players))
+        st.write(players)
 
-        st.write("B数:", b_nums)
+        st.write("勝率数")
+        st.write(len(rates))
+        st.write(rates)
+
+        st.write("B数")
+        st.write(len(b_nums))
+        st.write(b_nums)
+
+        # =====================================
+        # AIスコア計算
+        # =====================================
 
         scores = []
 
@@ -282,6 +300,10 @@ if st.button("AI予想開始"):
             reverse=True
         )
 
+        # =====================================
+        # AIスコア表示
+        # =====================================
+
         st.header("AIスコア")
 
         if len(sorted_scores) == 0:
@@ -295,12 +317,12 @@ if st.button("AI予想開始"):
                 car_no, name, score = data
 
                 st.write(
-                    f"{rank}位  車番{car_no}  {name}  AI点数 {round(score,1)}"
+                    f"{rank}位 車番{car_no} {name} AI点数 {round(score,1)}"
                 )
 
-        # =========================
+        # =====================================
         # 推奨3連単
-        # =========================
+        # =====================================
 
         if len(sorted_scores) >= 3:
 
@@ -318,9 +340,9 @@ if st.button("AI予想開始"):
 
             st.success(f"{second}-{first}-{third}")
 
-            # =====================
+            # =====================================
             # AI期待値
-            # =====================
+            # =====================================
 
             ev = round(
                 (
@@ -335,9 +357,9 @@ if st.button("AI予想開始"):
 
             st.success(f"{ev}%")
 
-            # =====================
+            # =====================================
             # 投資判断
-            # =====================
+            # =====================================
 
             st.header("投資判断")
 
