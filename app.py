@@ -20,24 +20,18 @@ BANK_BONUS = {
 }
 
 # =====================================
-# 2. 解析ロジック
+# 2. 解析・計算ロジック
 # =====================================
 
 def extract_place_fixed(text):
-    """開催場所をテキストの冒頭から優先的に抽出"""
-    # 最初の100文字以内を重点的に探す
     header = text[:100]
     for place in BANK_BONUS.keys():
-        if place in header:
-            return place
-    # 見つからない場合は全体から探す
+        if place in header: return place
     for place in BANK_BONUS.keys():
-        if place in text:
-            return place
+        if place in text: return place
     return "不明"
 
 def extract_players_final(text):
-    """テキスト全体から選手と成績を紐付け抽出"""
     players = []
     # 選手名(年齢) のパターンで分割
     player_blocks = re.findall(r'([1-9])\s+([^\s\d\(\)（）]+)[\s\n]*[\(（](\d{2})[\)）]', text)
@@ -62,22 +56,19 @@ def extract_players_final(text):
         floats = [float(n) for n in nums if "." in n]
         ints = [int(n) for n in nums if "." not in n]
         
-        # 決まり手抽出（年齢や大きな数字を除外して精度向上）
-        relevant_ints = [n for n in ints if n != int(age) and n < 40]
+        relevant_ints = [n for n in ints if n != int(age) and n < 45]
         if len(relevant_ints) >= 6:
             p_data.update({"S": relevant_ints[0], "B": relevant_ints[1], "逃": relevant_ints[2], 
                            "捲": relevant_ints[3], "差": relevant_ints[4], "マ": relevant_ints[5]})
-            
         if len(floats) >= 3:
             p_data.update({"勝率": floats[0], "連対率": floats[1], "3連対率": floats[2]})
-            
         players.append(p_data)
     return players
 
 def calculate_scores(players, place):
     for p in players:
         score = (p["勝率"] * 2.5 + p["連対率"] * 1.8 + p["3連対率"] * 1.2 +
-                 p["B"] * 3.0 + p["逃"] * 2.5 + p["捲"] * 2.5 + p["差"] * 1.0)
+                 p["B"] * 3.5 + p["逃"] * 3.0 + p["捲"] * 2.8 + p["差"] * 1.5)
         if p["年齢"] <= 30: score += 25
         elif p["年齢"] <= 35: score += 12
         score += BANK_BONUS.get(place, 0)
@@ -85,12 +76,8 @@ def calculate_scores(players, place):
     return sorted(players, key=lambda x: x["AIスコア"], reverse=True)
 
 def generate_bets_fixed(sorted_p):
-    """ご要望通りの点数（6-6-3）で生成"""
     if len(sorted_p) < 5: return None
-    # 上位5名の車番を取得
     n = [p["車番"] for p in sorted_p]
-    
-    # 3連単フォーマット: 1着-2着-3着
     return {
         "本線（6点）": [
             f"{n[0]}-{n[1]}-{n[2]}", f"{n[0]}-{n[1]}-{n[3]}", 
@@ -108,25 +95,58 @@ def generate_bets_fixed(sorted_p):
     }
 
 # =====================================
-# 3. UI
+# 3. UI部
 # =====================================
 race_data = st.text_area("競輪データを貼り付けてください", height=300)
 
-if st.button("AI予想開始", type="primary", use_container_width=True):
+if st.button("AI解析・的中率診断開始", type="primary", use_container_width=True):
     if race_data.strip():
         place = extract_place_fixed(race_data)
         players = extract_players_final(race_data)
         
         if players:
             sorted_p = calculate_scores(players, place)
+            
+            # --- 的中率と判断の計算 ---
+            top_score = sorted_p[0]["AIスコア"]
+            second_score = sorted_p[1]["AIスコア"]
+            score_diff = top_score - second_score
+            
+            # 的中期待値の算出ロジック
+            base_prob = 40 + (score_diff * 2) # スコア差があるほど的中率アップ
+            if base_prob > 85: base_prob = 85 + (score_diff * 0.1)
+            final_prob = round(min(base_prob, 98.2), 1) # 最大98.2%
+            
+            # 買い目判断
+            if final_prob > 80:
+                decision = "🔥 鉄板級：一点集中勝負"
+                color = "success"
+            elif final_prob > 60:
+                decision = "⚖️ 標準：本線軸で手堅く"
+                color = "info"
+            elif final_prob > 40:
+                decision = "⚠️ 混戦：広めに構えるべき"
+                color = "warning"
+            else:
+                decision = "🎲 荒れ予想：見送りが賢明"
+                color = "error"
+
+            # 表示セクション
             st.success(f"📍 開催場: {place} 競輪場")
             
+            # 的中率・判断のハイライト表示
+            m1, m2 = st.columns(2)
+            with m1:
+                st.metric("AI予想的中期待値", f"{final_prob}%")
+            with m2:
+                st.subheader(f"買い目判断: {decision}")
+
             # ランキング
             st.subheader("📊 AI能力指数ランキング")
             df = pd.DataFrame(sorted_p)
             st.dataframe(df[["車番", "選手名", "年齢", "AIスコア", "勝率", "連対率", "S", "B", "逃", "捲", "差", "マ"]], use_container_width=True)
 
-            # 買い目表示
+            # 買い目
             st.divider()
             st.header("🎯 AI推奨買い目 (3連単)")
             bets = generate_bets_fixed(sorted_p)
@@ -142,6 +162,6 @@ if st.button("AI予想開始", type="primary", use_container_width=True):
                     st.error("🚀 大穴 (3点)")
                     for b in bets["大穴（3点）"]: st.write(f"・{b}")
         else:
-            st.error("選手データを抽出できませんでした。コピー範囲を確認してください。")
+            st.error("選手データを抽出できませんでした。")
 
 if st.button("リセット"): st.rerun()
