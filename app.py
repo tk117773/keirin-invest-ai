@@ -2,14 +2,17 @@ import streamlit as st
 import re
 import pandas as pd
 import os
+import matplotlib.pyplot as plt
 
 st.set_page_config(
-    page_title="KEIRIN INVEST AI ULTIMATE",
+    page_title="KEIRIN INVEST AI FINAL",
     layout="wide"
 )
 
-st.title("🚴 KEIRIN INVEST AI ULTIMATE")
-st.write("Version 6")
+st.title("🚴 KEIRIN INVEST AI FINAL")
+st.write("Version 7")
+
+DB_FILE = "results.csv"
 
 if "race_data" not in st.session_state:
     st.session_state.race_data = ""
@@ -24,7 +27,12 @@ if st.button("クリア"):
     st.session_state.race_data = ""
     st.rerun()
 
-DB_FILE = "results.csv"
+odds_input = st.number_input(
+    "想定オッズ",
+    min_value=1.0,
+    value=10.0,
+    step=0.1
+)
 
 BANK_BONUS = {
     "宇都宮": 5,
@@ -34,9 +42,10 @@ BANK_BONUS = {
     "高知": 6
 }
 
-def extract_race_place(text):
+def extract_place(text):
 
     for bank in BANK_BONUS.keys():
+
         if bank in text:
             return bank
 
@@ -47,6 +56,7 @@ def extract_lines(text):
     numbers = re.findall(r'\b[1-9]\b', text)
 
     if len(numbers) >= 7:
+
         return (
             numbers[0:3],
             numbers[3:6],
@@ -63,11 +73,9 @@ def extract_players(text):
 
 def extract_rates(text):
 
-    rates = re.findall(r'\d+\.\d+', text)
+    return re.findall(r'\d+\.\d+', text)
 
-    return rates
-
-def extract_b_counts(text):
+def extract_b(text):
 
     b_list = []
 
@@ -81,7 +89,6 @@ def extract_b_counts(text):
 
             try:
                 b = int(cols[4])
-
                 b_list.append(b)
 
             except:
@@ -89,29 +96,23 @@ def extract_b_counts(text):
 
     return b_list
 
-def calculate_ai_score(win_rate, b_count, bank_bonus):
+def calc_score(rate, b, bonus):
 
     score = 0
 
-    score += float(win_rate) * 1.8
-    score += int(b_count) * 4
-    score += bank_bonus
+    score += float(rate) * 1.8
+    score += int(b) * 4
+    score += bonus
 
     return round(score, 1)
 
-def calculate_expected_value(score):
+def calc_expected_value(score, odds):
 
-    if score >= 100:
-        return 140
+    win_prob = min(score / 120, 0.9)
 
-    elif score >= 80:
-        return 125
+    ev = round(win_prob * odds * 100, 1)
 
-    elif score >= 60:
-        return 110
-
-    else:
-        return 85
+    return ev
 
 def save_result(race, hit, profit):
 
@@ -136,18 +137,20 @@ def load_stats():
         df = pd.read_csv(DB_FILE)
 
         total = len(df)
+
         hits = df["hit"].sum()
+
         profit = df["profit"].sum()
 
         hit_rate = round((hits / total) * 100, 1)
 
-        return total, hit_rate, profit
+        return df, total, hit_rate, profit
 
-    return 0, 0, 0
+    return pd.DataFrame(), 0, 0, 0
 
 if st.button("AI予想開始"):
 
-    place = extract_race_place(race_data)
+    place = extract_place(race_data)
 
     bank_bonus = BANK_BONUS.get(place, 0)
 
@@ -157,7 +160,7 @@ if st.button("AI予想開始"):
 
     rates = extract_rates(race_data)
 
-    b_counts = extract_b_counts(race_data)
+    b_counts = extract_b(race_data)
 
     if result:
 
@@ -173,31 +176,21 @@ if st.button("AI予想開始"):
         st.write(f"対抗ライン：{'-'.join(line2)}")
         st.write(f"単騎：{single}")
 
-        st.subheader("ライン有利度")
-
-        st.success("本命ライン有利")
-
-        st.subheader("展開予測")
-
-        st.write(f"{line1[0]} 先行")
-        st.write(f"{line1[1]} 番手差し")
-        st.write(f"{line2[0]} 捲り警戒")
-
-        st.subheader("AIスコアランキング")
+        st.subheader("AIスコア")
 
         ai_scores = {}
 
         for i in range(min(len(players), len(rates), len(b_counts))):
 
-            player_name = players[i][1].strip()
+            name = players[i][1].strip()
 
-            score = calculate_ai_score(
+            score = calc_score(
                 rates[i],
                 b_counts[i],
                 bank_bonus
             )
 
-            ai_scores[player_name] = score
+            ai_scores[name] = score
 
         sorted_scores = sorted(
             ai_scores.items(),
@@ -211,33 +204,36 @@ if st.button("AI予想開始"):
 
         top_score = sorted_scores[0][1]
 
-        expected_value = calculate_expected_value(top_score)
+        ev = calc_expected_value(
+            top_score,
+            odds_input
+        )
 
-        st.subheader("本命危険度")
+        st.subheader("人気危険度")
 
-        if top_score >= 100:
-            st.success("本命信頼度 高")
+        if odds_input <= 3:
+            st.error("過剰人気注意")
 
-        elif top_score >= 70:
-            st.warning("本命信頼度 中")
-
-        else:
-            st.error("本命危険")
-
-        st.subheader("穴期待値")
-
-        st.success(f"穴候補：車番 {single}")
-
-        st.subheader("買い推奨判定")
-
-        if expected_value >= 120:
-            st.success("買い推奨レース")
-
-        elif expected_value >= 100:
-            st.warning("回収率注意")
+        elif odds_input <= 8:
+            st.warning("人気ゾーン")
 
         else:
-            st.error("見送り推奨")
+            st.success("穴期待値あり")
+
+        st.subheader("AI期待値")
+
+        st.success(f"期待値：{ev}%")
+
+        st.subheader("投資判断")
+
+        if ev >= 130:
+            st.success("強く買い")
+
+        elif ev >= 100:
+            st.warning("買い候補")
+
+        else:
+            st.error("見送り")
 
         st.subheader("推奨3連単")
 
@@ -245,38 +241,59 @@ if st.button("AI予想開始"):
             f"{line1[1]}-{line1[0]}-{line2[0]}",
             f"{line1[0]}-{line1[1]}-{line2[0]}",
             f"{line2[0]}-{line2[1]}-{line1[1]}",
-            f"{line1[1]}-{line2[0]}-{line1[0]}",
             f"{single}-{line1[1]}-{line1[0]}",
             f"{line1[1]}-{single}-{line1[0]}",
             f"{line2[0]}-{line1[1]}-{single}",
-            f"{single}-{line2[0]}-{line1[1]}"
+            f"{single}-{line2[0]}-{line1[1]}",
+            f"{line1[0]}-{single}-{line2[0]}"
         ]
 
         for bet in bets:
             st.write(bet)
 
-        st.subheader("AI期待回収率")
-
-        st.success(f"期待回収率：{expected_value}%")
-
-    else:
-
-        st.error("データ不足")
-
-st.subheader("回収率DB")
+st.subheader("結果登録")
 
 race_name = st.text_input("レース名")
+
 hit = st.checkbox("的中")
-profit = st.number_input("収支", step=100)
+
+profit = st.number_input(
+    "収支",
+    step=100
+)
 
 if st.button("結果保存"):
 
-    save_result(race_name, hit, profit)
+    save_result(
+        race_name,
+        hit,
+        profit
+    )
 
     st.success("保存完了")
 
-total, hit_rate, total_profit = load_stats()
+df, total, hit_rate, total_profit = load_stats()
+
+st.subheader("投資成績")
 
 st.write(f"総レース数：{total}")
 st.write(f"的中率：{hit_rate}%")
 st.write(f"総収支：{total_profit}円")
+
+if not df.empty:
+
+    st.subheader("回収率グラフ")
+
+    df["累計収支"] = df["profit"].cumsum()
+
+    fig, ax = plt.subplots()
+
+    ax.plot(df["累計収支"])
+
+    ax.set_title("累計収支")
+
+    st.pyplot(fig)
+
+    st.subheader("過去レースDB")
+
+    st.dataframe(df)
