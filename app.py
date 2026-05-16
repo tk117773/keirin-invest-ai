@@ -8,16 +8,17 @@ st.set_page_config(
 
 st.title("🚴 KEIRIN INVEST AI Version8")
 
-# =========================
+# =====================================
 # Session State
-# =========================
+# =====================================
 
 if "race_data" not in st.session_state:
+
     st.session_state["race_data"] = ""
 
-# =========================
+# =====================================
 # 全国競輪場補正
-# =========================
+# =====================================
 
 BANK_BONUS = {
 
@@ -66,15 +67,13 @@ BANK_BONUS = {
     "熊本": 5
 }
 
-# =========================
+# =====================================
 # 開催場解析
-# =========================
+# =====================================
 
 def extract_place(text):
 
-    places = list(BANK_BONUS.keys())
-
-    for place in places:
+    for place in BANK_BONUS.keys():
 
         if place in text:
 
@@ -82,9 +81,9 @@ def extract_place(text):
 
     return "不明"
 
-# =========================
+# =====================================
 # ライン解析
-# =========================
+# =====================================
 
 def extract_lines(text):
 
@@ -100,9 +99,9 @@ def extract_lines(text):
 
     return None
 
-# =========================
+# =====================================
 # 選手解析
-# =========================
+# =====================================
 
 def extract_players(text):
 
@@ -114,33 +113,27 @@ def extract_players(text):
 
         line = line.strip()
 
-        if "(" in line and ")" in line:
+        # 例:
+        # 1 1 福元啓太(29)
 
-            try:
+        match = re.match(
+            r'^(\d+)\s+(\d+)\s+([^\(]+)\(',
+            line
+        )
 
-                parts = line.split("(")
+        if match:
 
-                left = parts[0].strip()
+            car_no = match.group(2)
 
-                cols = left.split()
+            name = match.group(3).strip()
 
-                if len(cols) >= 3:
-
-                    car_no = cols[0]
-
-                    name = cols[2]
-
-                    players.append((car_no, name))
-
-            except:
-
-                pass
+            players.append((car_no, name))
 
     return players
 
-# =========================
+# =====================================
 # 勝率解析
-# =========================
+# =====================================
 
 def extract_rates(text):
 
@@ -152,7 +145,7 @@ def extract_rates(text):
 
         nums = re.findall(r'\d+\.\d+', line)
 
-        if len(nums) >= 3:
+        if len(nums) >= 1:
 
             try:
 
@@ -168,9 +161,9 @@ def extract_rates(text):
 
     return rates
 
-# =========================
+# =====================================
 # B数解析
-# =========================
+# =====================================
 
 def extract_b_numbers(text):
 
@@ -182,11 +175,11 @@ def extract_b_numbers(text):
 
         nums = re.findall(r'\d+', line)
 
-        if len(nums) > 5:
+        if len(nums) >= 6:
 
             try:
 
-                b = int(nums[1])
+                b = int(nums[3])
 
                 b_list.append(b)
 
@@ -196,19 +189,19 @@ def extract_b_numbers(text):
 
     return b_list
 
-# =========================
-# 入力欄
-# =========================
+# =====================================
+# データ入力
+# =====================================
 
 race_data = st.text_area(
     "競輪データ貼付",
-    height=400,
+    height=450,
     key="race_data"
 )
 
-# =========================
+# =====================================
 # クリアボタン
-# =========================
+# =====================================
 
 if st.button("クリア"):
 
@@ -216,30 +209,31 @@ if st.button("クリア"):
 
     st.rerun()
 
-# =========================
+# =====================================
 # AI予想開始
-# =========================
+# =====================================
 
 if st.button("AI予想開始"):
 
     place = extract_place(race_data)
 
     st.header("開催場")
+
     st.success(place)
 
     result = extract_lines(race_data)
 
     if result:
 
-        main_line, rival_line, solo = result
+        line1, line2, single = result
 
         st.header("ライン解析")
 
-        st.write(f"本命ライン : {'-'.join(main_line)}")
+        st.write(f"本命ライン : {'-'.join(line1)}")
 
-        st.write(f"対抗ライン : {'-'.join(rival_line)}")
+        st.write(f"対抗ライン : {'-'.join(line2)}")
 
-        st.write(f"単騎 : {solo}")
+        st.write(f"単騎 : {single}")
 
         players = extract_players(race_data)
 
@@ -247,11 +241,23 @@ if st.button("AI予想開始"):
 
         b_nums = extract_b_numbers(race_data)
 
+        # デバッグ表示
+        st.subheader("解析確認")
+
+        st.write("選手:", players)
+
+        st.write("勝率:", rates)
+
+        st.write("B数:", b_nums)
+
         scores = []
 
-        for i in range(min(len(players), len(rates))):
+        count = min(len(players), len(rates))
+
+        for i in range(count):
 
             car_no = players[i][0]
+
             name = players[i][1]
 
             rate = rates[i]
@@ -259,11 +265,13 @@ if st.button("AI予想開始"):
             b = 0
 
             if i < len(b_nums):
+
                 b = b_nums[i]
 
             score = rate + (b * 2)
 
             if place in BANK_BONUS:
+
                 score += BANK_BONUS[place]
 
             scores.append((car_no, name, score))
@@ -276,25 +284,43 @@ if st.button("AI予想開始"):
 
         st.header("AIスコア")
 
-        for rank, data in enumerate(sorted_scores, start=1):
+        if len(sorted_scores) == 0:
 
-            car_no, name, score = data
+            st.error("AI解析失敗")
 
-            st.write(
-                f"{rank}位 {car_no} {name} AI点数 {round(score,1)}"
-            )
+        else:
+
+            for rank, data in enumerate(sorted_scores, start=1):
+
+                car_no, name, score = data
+
+                st.write(
+                    f"{rank}位  車番{car_no}  {name}  AI点数 {round(score,1)}"
+                )
+
+        # =========================
+        # 推奨3連単
+        # =========================
 
         if len(sorted_scores) >= 3:
 
-            st.header("推奨3連単")
-
             first = sorted_scores[0][0]
+
             second = sorted_scores[1][0]
+
             third = sorted_scores[2][0]
+
+            st.header("推奨3連単")
 
             st.success(f"{first}-{second}-{third}")
 
-            st.header("AI期待値")
+            st.success(f"{first}-{third}-{second}")
+
+            st.success(f"{second}-{first}-{third}")
+
+            # =====================
+            # AI期待値
+            # =====================
 
             ev = round(
                 (
@@ -305,7 +331,13 @@ if st.button("AI予想開始"):
                 1
             )
 
+            st.header("AI期待値")
+
             st.success(f"{ev}%")
+
+            # =====================
+            # 投資判断
+            # =====================
 
             st.header("投資判断")
 
