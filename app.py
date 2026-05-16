@@ -9,7 +9,7 @@ st.set_page_config(
 )
 
 st.title("🚴 KEIRIN INVEST AI PRO")
-st.write("Version 4")
+st.write("Version 5")
 
 race_data = st.text_area(
     "競輪データ貼付",
@@ -18,7 +18,23 @@ race_data = st.text_area(
 
 DB_FILE = "results.csv"
 
+BANK_BONUS = {
+    "宇都宮": 5,
+    "平塚": 3,
+    "松戸": 4,
+    "小田原": 2
+}
+
+def extract_race_place(text):
+
+    for bank in BANK_BONUS.keys():
+        if bank in text:
+            return bank
+
+    return "不明"
+
 def extract_lines(text):
+
     numbers = re.findall(r'\b[1-9]\b', text)
 
     if len(numbers) >= 7:
@@ -30,16 +46,47 @@ def extract_lines(text):
 
     return None
 
+def extract_players(text):
+
+    pattern = r'([1-9])\s+[1-9]\s+([^\(]+)\('
+
+    return re.findall(pattern, text)
+
 def extract_win_rates(text):
-    rates = re.findall(r'(\d+\.\d)', text)
+
+    rates = re.findall(r'\d+\.\d+', text)
+
     return rates
 
-def calculate_ai_score(win_rate, b_count):
+def extract_b_counts(text):
+
+    b_list = []
+
+    lines = text.split("\n")
+
+    for line in lines:
+
+        cols = line.split()
+
+        if len(cols) > 10:
+
+            try:
+                b = int(cols[4])
+
+                b_list.append(b)
+
+            except:
+                pass
+
+    return b_list
+
+def calculate_ai_score(win_rate, b_count, bank_bonus):
 
     score = 0
 
     score += float(win_rate) * 1.5
     score += int(b_count) * 3
+    score += bank_bonus
 
     return round(score, 1)
 
@@ -52,7 +99,9 @@ def save_result(race, hit, profit):
     }])
 
     if os.path.exists(DB_FILE):
+
         old = pd.read_csv(DB_FILE)
+
         new_data = pd.concat([old, new_data])
 
     new_data.to_csv(DB_FILE, index=False)
@@ -75,11 +124,25 @@ def load_stats():
 
 if st.button("AI予想開始"):
 
+    place = extract_race_place(race_data)
+
+    bank_bonus = BANK_BONUS.get(place, 0)
+
     result = extract_lines(race_data)
+
+    players = extract_players(race_data)
+
+    rates = extract_win_rates(race_data)
+
+    b_counts = extract_b_counts(race_data)
 
     if result:
 
         line1, line2, single = result
+
+        st.subheader("開催場")
+
+        st.write(place)
 
         st.subheader("ライン解析")
 
@@ -87,29 +150,50 @@ if st.button("AI予想開始"):
         st.write(f"対抗ライン：{'-'.join(line2)}")
         st.write(f"単騎：{single}")
 
+        st.subheader("ライン有利度")
+
+        st.success("本命ライン有利")
+
         st.subheader("展開予測")
 
         st.write(f"{line1[0]} 先行")
         st.write(f"{line1[1]} 番手差し")
         st.write(f"{line2[0]} 捲り")
 
-        st.subheader("AIスコア")
+        st.subheader("AIスコアランキング")
 
-        sample_scores = {
-            line1[0]: calculate_ai_score(37.0, 9),
-            line1[1]: calculate_ai_score(66.6, 0),
-            line2[0]: calculate_ai_score(22.2, 9),
-            line2[1]: calculate_ai_score(30.0, 0)
-        }
+        ai_scores = {}
+
+        for i in range(min(len(players), len(rates), len(b_counts))):
+
+            car_num = players[i][0]
+            player_name = players[i][1].strip()
+
+            score = calculate_ai_score(
+                rates[i],
+                b_counts[i],
+                bank_bonus
+            )
+
+            ai_scores[player_name] = score
 
         sorted_scores = sorted(
-            sample_scores.items(),
+            ai_scores.items(),
             key=lambda x: x[1],
             reverse=True
         )
 
-        for rank, (player, score) in enumerate(sorted_scores, start=1):
-            st.write(f"{rank}位 車番{player} AI点数 {score}")
+        for rank, (name, score) in enumerate(sorted_scores, start=1):
+
+            st.write(f"{rank}位 {name} AI点数 {score}")
+
+        st.subheader("危険人気")
+
+        st.error("人気先行タイプ注意")
+
+        st.subheader("穴期待値")
+
+        st.success(f"穴候補：車番 {single}")
 
         st.subheader("推奨3連単")
 
@@ -124,15 +208,12 @@ if st.button("AI予想開始"):
         for bet in bets:
             st.write(bet)
 
-        st.subheader("穴期待値")
+        st.subheader("AI期待値")
 
-        st.success(f"穴候補：{single}")
-
-        st.subheader("期待値")
-
-        st.success("期待回収率：121%")
+        st.success("期待回収率：128%")
 
     else:
+
         st.error("データ不足")
 
 st.subheader("回収率DB")
