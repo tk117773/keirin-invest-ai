@@ -198,15 +198,15 @@ if st.button("AI予想開始"):
             reverse=True
         )
 
+       if len(sorted_scores) == 0:
+
+            st.error("選手データ解析失敗")
+
+            st.stop()
+
         for rank, (name, score) in enumerate(sorted_scores, start=1):
 
-        st.write(f"{rank}位 {name} AI点数 {score}")
-
-        if len(sorted_scores) == 0:
-
-        st.error("選手データ解析失敗")
-
-        st.stop()
+            st.write(f"{rank}位 {name} AI点数 {score}")
 
         top_score = sorted_scores[0][1]
             st.write(f"{rank}位 {name} AI点数 {score}")
