@@ -1,85 +1,173 @@
 import streamlit as st
 import re
+import pandas as pd
 
+# =========================
+# ページ設定
+# =========================
 st.set_page_config(
     page_title="競輪投資AI",
     layout="wide"
 )
 
-st.title("競輪投資AI")
+st.title("競輪投資AI（期待値分析版）")
 
-# ----------------------------
+# =========================
 # 入力欄
-# ----------------------------
-
+# =========================
 race_data = st.text_area(
     "レースデータ入力",
-    height=350,
+    height=400,
     placeholder="競輪データを貼り付け"
 )
 
-# ----------------------------
-# AI解析
-# ----------------------------
-
+# =========================
+# データ解析
+# =========================
 def analyze_race(data):
 
     lines = data.splitlines()
 
-    ai_score = 70
+    players = []
 
-    result = []
-
-    # 選手抽出
-    riders = []
+    current_player = {}
 
     for line in lines:
 
-        m = re.search(r'^\d+\s+\d+\s+([^\(]+)', line)
+        line = line.strip()
 
-        if m:
-            riders.append(m.group(1).strip())
+        # 選手行判定
+        match = re.match(
+            r"(\d+)\s+(\d+)\s+([^\(]+)\((\d+)\)",
+            line
+        )
 
-    # 簡易AIロジック
-    if len(riders) >= 3:
+        if match:
 
-        main = riders[0]
-        second = riders[1]
-        third = riders[2]
+            if current_player:
+                players.append(current_player)
 
-        ai_score = 87
+            current_player = {
+                "車番": match.group(2),
+                "選手名": match.group(3).strip(),
+                "年齢": int(match.group(4))
+            }
 
-        result.append(f"◎本命 {main}")
-        result.append(f"○対抗 {second}")
-        result.append(f"▲穴 {third}")
+            continue
 
-        result.append("")
-        result.append("【推奨買い目】")
-        result.append(f"{main}-{second}-{third}")
-        result.append(f"{main}-{third}-{second}")
+        # 成績行取得
+        nums = re.findall(r"\d+\.\d+|\d+", line)
+
+        if len(nums) >= 10 and current_player:
+
+            try:
+                current_player["S"] = int(nums[0])
+                current_player["B"] = int(nums[1])
+                current_player["逃"] = int(nums[2])
+                current_player["捲"] = int(nums[3])
+                current_player["差"] = int(nums[4])
+                current_player["マ"] = int(nums[5])
+                current_player["勝率"] = float(nums[6])
+                current_player["連対率"] = float(nums[7])
+                current_player["3連対率"] = float(nums[8])
+
+            except:
+                pass
+
+    # 最後追加
+    if current_player:
+        players.append(current_player)
+
+    # =========================
+    # AIスコア計算
+    # =========================
+
+    for p in players:
+
+        score = 0
+
+        score += p.get("勝率", 0) * 2
+        score += p.get("連対率", 0) * 1.2
+        score += p.get("3連対率", 0)
+
+        score += p.get("B", 0) * 2
+        score += p.get("逃", 0) * 1.5
+        score += p.get("捲", 0) * 2
+        score += p.get("差", 0) * 1.8
+        score += p.get("マ", 0)
+
+        # 若手機動型補正
+        if p.get("年齢", 50) <= 35:
+            score += 5
+
+        # 高齢追込減点
+        if p.get("年齢", 0) >= 48 and p.get("B", 0) == 0:
+            score -= 3
+
+        p["AIスコア"] = round(score, 1)
+
+    # =========================
+    # スコア順
+    # =========================
+    players_sorted = sorted(
+        players,
+        key=lambda x: x["AIスコア"],
+        reverse=True
+    )
+
+    # =========================
+    # 印
+    # =========================
+    marks = ["◎", "○", "▲", "☆"]
+
+    result_text = ""
+
+    for i, p in enumerate(players_sorted[:4]):
+
+        result_text += (
+            f"{marks[i]} "
+            f"{p['車番']}番 "
+            f"{p['選手名']} "
+            f"AI:{p['AIスコア']}\n"
+        )
+
+    # =========================
+    # 買い目生成
+    # =========================
+    top3 = players_sorted[:3]
+
+    if len(top3) >= 3:
+
+        a = top3[0]["車番"]
+        b = top3[1]["車番"]
+        c = top3[2]["車番"]
+
+        bets = [
+            f"{a}-{b}-{c}",
+            f"{a}-{c}-{b}",
+            f"{b}-{a}-{c}",
+            f"{a}-{b}-全"
+        ]
 
     else:
+        bets = []
 
-        ai_score = 40
+    result_text += "\n【推奨買い目】\n"
 
-        result.append("データ解析不足")
+    for b in bets:
+        result_text += f"{b}\n"
 
-    return "\n".join(result), ai_score
+    # =========================
+    # DataFrame
+    # =========================
+    df = pd.DataFrame(players_sorted)
 
-# ----------------------------
-# session_state 初期化
-# ----------------------------
+    return result_text, df
 
-if "result" not in st.session_state:
-    st.session_state.result = ""
 
-if "ai_score" not in st.session_state:
-    st.session_state.ai_score = 0
-
-# ----------------------------
-# 解析ボタン
-# ----------------------------
-
+# =========================
+# 実行
+# =========================
 if st.button("解析開始"):
 
     if race_data.strip() == "":
@@ -90,30 +178,59 @@ if st.button("解析開始"):
 
         with st.spinner("AI解析中..."):
 
-            result, ai_score = analyze_race(race_data)
+            result, df = analyze_race(race_data)
 
-            st.session_state.result = result
-            st.session_state.ai_score = ai_score
+        # =========================
+        # AIランキング
+        # =========================
+        st.subheader("AIスコアランキング")
 
-# ----------------------------
-# AIスコア表示
-# ----------------------------
+        if "AIスコア" in df.columns:
 
-if st.session_state.ai_score > 0:
+            for i in range(min(4, len(df))):
 
-    st.subheader("AIスコア")
+                col1, col2 = st.columns([1, 4])
 
-    st.metric(
-        label="期待値スコア",
-        value=int(st.session_state.ai_score)
-    )
+                with col1:
+                    st.metric(
+                        f"{df.iloc[i]['車番']}番",
+                        df.iloc[i]["AIスコア"]
+                    )
 
-# ----------------------------
-# 解析確認表示
-# ----------------------------
+                with col2:
+                    st.write(df.iloc[i]["選手名"])
 
-if st.session_state.result != "":
+        # =========================
+        # 表表示
+        # =========================
+        st.subheader("解析確認")
 
-    st.subheader("解析確認")
+        display_cols = [
+            "車番",
+            "選手名",
+            "AIスコア",
+            "勝率",
+            "連対率",
+            "3連対率",
+            "B",
+            "逃",
+            "捲",
+            "差"
+        ]
 
-    st.text(st.session_state.result)
+        existing_cols = [
+            c for c in display_cols
+            if c in df.columns
+        ]
+
+        st.dataframe(
+            df[existing_cols],
+            use_container_width=True
+        )
+
+        # =========================
+        # 最終予想
+        # =========================
+        st.subheader("AI最終予想")
+
+        st.text(result)
