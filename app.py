@@ -82,7 +82,39 @@ BANK_BONUS = {
     "熊本": 5
 }
 
-def extract_place(text):
+def extract_players(text):
+
+    players = []
+
+    lines = text.split("\n")
+
+    for line in lines:
+
+        line = line.strip()
+
+        if "(" in line and ")" in line:
+
+            try:
+
+                parts = line.split("(")
+
+                left = parts[0].strip()
+
+                cols = left.split()
+
+                if len(cols) >= 3:
+
+                    car_no = cols[0]
+
+                    name = cols[2]
+
+                    players.append((car_no, name))
+
+            except:
+
+                pass
+
+    return players
 
     for bank in BANK_BONUS.keys():
 
@@ -91,7 +123,31 @@ def extract_place(text):
 
     return "不明"
 
-def extract_lines(text):
+def extract_rates(text):
+
+    rates = []
+
+    lines = text.split("\n")
+
+    for line in lines:
+
+        nums = re.findall(r'\d+\.\d+', line)
+
+        if len(nums) >= 3:
+
+            try:
+
+                rate = float(nums[0])
+
+                if 50 <= rate <= 100:
+
+                    rates.append(rate)
+
+            except:
+
+                pass
+
+    return rates
 
     nums = re.findall(r'[1-9]', text)
 
