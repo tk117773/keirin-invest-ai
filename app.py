@@ -113,6 +113,7 @@ def extract_lines(text):
 
                 nums.append(line)
 
+    # 9車
     if len(nums) >= 9:
 
         return (
@@ -121,6 +122,7 @@ def extract_lines(text):
             nums[6:9]
         )
 
+    # 7車
     elif len(nums) >= 7:
 
         return (
@@ -132,7 +134,7 @@ def extract_lines(text):
     return None
 
 # =====================================
-# 選手解析
+# 選手解析（完全修正版）
 # =====================================
 
 def extract_players(text):
@@ -141,19 +143,24 @@ def extract_players(text):
 
     lines = text.split("\n")
 
-    current_player = {}
+    current_player = None
 
     for line in lines:
 
         line = line.strip()
 
+        # =====================================
+        # 選手開始行
+        # =====================================
+
         match = re.match(
-            r"(\d+)\s+(\d+)\s+([^\(]+)\((\d+)\)",
+            r"^(\d+)\s+(\d+)\s+([^\(]+)\((\d+)\)",
             line
         )
 
         if match:
 
+            # 前選手保存
             if current_player:
 
                 players.append(current_player)
@@ -162,14 +169,29 @@ def extract_players(text):
 
                 "車番": match.group(2),
                 "選手名": match.group(3).strip(),
-                "年齢": int(match.group(4))
+                "年齢": int(match.group(4)),
+
+                "S": 0,
+                "B": 0,
+                "逃": 0,
+                "捲": 0,
+                "差": 0,
+                "マ": 0,
+
+                "勝率": 0.0,
+                "連対率": 0.0,
+                "3連対率": 0.0
             }
 
             continue
 
+        # =====================================
+        # 数値解析
+        # =====================================
+
         nums = re.findall(r"\d+\.\d+|\d+", line)
 
-        if len(nums) >= 10 and current_player:
+        if len(nums) >= 9 and current_player:
 
             try:
 
@@ -189,6 +211,7 @@ def extract_players(text):
 
                 pass
 
+    # 最後追加
     if current_player:
 
         players.append(current_player)
@@ -205,24 +228,29 @@ def calculate_scores(players, place):
 
         score = 0
 
+        # 基本能力
         score += p.get("勝率", 0) * 2
         score += p.get("連対率", 0) * 1.5
         score += p.get("3連対率", 0)
 
+        # 脚質補正
         score += p.get("B", 0) * 2.5
         score += p.get("逃", 0) * 2
         score += p.get("捲", 0) * 2.2
         score += p.get("差", 0) * 1.8
         score += p.get("マ", 0)
 
+        # 若手機動型
         if p.get("年齢", 50) <= 35:
 
             score += 5
 
+        # 高齢追込減点
         if p.get("年齢", 0) >= 48 and p.get("B", 0) == 0:
 
             score -= 4
 
+        # バンク補正
         if place in BANK_BONUS:
 
             score += BANK_BONUS[place]
@@ -248,17 +276,30 @@ def generate_bets(players_sorted):
         "大穴": []
     }
 
-    if len(players_sorted) < 5:
+    if len(players_sorted) < 3:
 
         return bets
 
     a = players_sorted[0]["車番"]
     b = players_sorted[1]["車番"]
     c = players_sorted[2]["車番"]
-    d = players_sorted[3]["車番"]
-    e = players_sorted[4]["車番"]
 
+    d = (
+        players_sorted[3]["車番"]
+        if len(players_sorted) >= 4
+        else c
+    )
+
+    e = (
+        players_sorted[4]["車番"]
+        if len(players_sorted) >= 5
+        else c
+    )
+
+    # =====================================
     # 本線6点
+    # =====================================
+
     bets["本線"] = [
 
         f"{a}-{b}-{c}",
@@ -269,7 +310,10 @@ def generate_bets(players_sorted):
         f"{b}-{c}-{a}"
     ]
 
+    # =====================================
     # 中穴6点
+    # =====================================
+
     bets["中穴"] = [
 
         f"{c}-{a}-{b}",
@@ -280,7 +324,10 @@ def generate_bets(players_sorted):
         f"{d}-{b}-{c}"
     ]
 
+    # =====================================
     # 大穴3点
+    # =====================================
+
     bets["大穴"] = [
 
         f"{e}-{a}-{b}",
@@ -358,6 +405,7 @@ def calculate_hit_probability(players_sorted):
 
         hit_rate = 25
 
+    # B補正
     top_b = players_sorted[0].get("B", 0)
 
     if top_b >= 10:
@@ -368,6 +416,7 @@ def calculate_hit_probability(players_sorted):
 
         hit_rate += 3
 
+    # 高齢補正
     high_age_count = 0
 
     for p in players_sorted[:3]:
@@ -378,6 +427,7 @@ def calculate_hit_probability(players_sorted):
 
     hit_rate -= high_age_count * 2
 
+    # 接戦補正
     score_gap = (
         players_sorted[0]["AIスコア"]
         - players_sorted[3]["AIスコア"]
@@ -430,14 +480,20 @@ if st.button("AI予想開始"):
 
         with st.spinner("AI解析中..."):
 
+            # =====================================
             # 開催場
+            # =====================================
+
             place = extract_place(race_data)
 
             st.header("開催場")
 
             st.success(place)
 
+            # =====================================
             # ライン解析
+            # =====================================
+
             line_result = extract_lines(race_data)
 
             if line_result:
@@ -454,7 +510,10 @@ if st.button("AI予想開始"):
 
                 st.error("ライン解析失敗")
 
+            # =====================================
             # 選手解析
+            # =====================================
+
             players = extract_players(race_data)
 
             if len(players) == 0:
@@ -463,13 +522,17 @@ if st.button("AI予想開始"):
 
             else:
 
+                # =====================================
+                # AIスコア計算
+                # =====================================
+
                 players_sorted = calculate_scores(
                     players,
                     place
                 )
 
                 # =====================================
-                # AIスコア
+                # AIスコアランキング
                 # =====================================
 
                 st.header("AIスコアランキング")
@@ -530,7 +593,7 @@ if st.button("AI予想開始"):
                 )
 
                 # =====================================
-                # 最終印
+                # AI最終印
                 # =====================================
 
                 st.header("AI最終印")
