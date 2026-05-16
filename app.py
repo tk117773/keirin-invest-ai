@@ -7,13 +7,13 @@ import re
 # =====================================
 st.set_page_config(page_title="KEIRIN INVEST AI Ultimate", layout="wide")
 st.title("🚴 KEIRIN INVEST AI Ultimate")
-st.caption("【最新Ver】ライン結束度(同県・同地区) & ライン厚み指数 解析エンジン搭載")
+st.caption("【完全統合版】ライン結束・的中率・回収期待値・厳選8点ロジック")
 
-# 地区区分データ（結束度判定用）
+# 地区区分
 REGION_MAP = {
     "北日本": ["青森", "岩手", "秋田", "山形", "宮城", "福島"],
     "関東": ["茨城", "栃木", "群馬", "埼玉", "東京", "千葉", "神奈川", "山梨", "新潟"],
-    "南関東": ["千葉", "神奈川", "静岡"], # 重複含め実態に即して
+    "南関東": ["千葉", "神奈川", "静岡"],
     "中部": ["岐阜", "三重", "富山", "石川", "福井", "愛知"],
     "近畿": ["滋賀", "京都", "大阪", "兵庫", "奈良", "和歌山"],
     "中国": ["岡山", "広島", "山口"],
@@ -32,7 +32,7 @@ BANK_BONUS = {
 }
 
 # =====================================
-# 2. 解析エンジン
+# 2. 解析エンジン（ここに関数をまとめました）
 # =====================================
 
 def get_region(pref):
@@ -40,9 +40,15 @@ def get_region(pref):
         if pref in prefs: return region
     return "不明"
 
+def extract_place(text):
+    header = text[:150]
+    for place in BANK_BONUS.keys():
+        if place in header: return place
+    return "不明"
+
 def extract_players_ultra(text):
     players = []
-    # 車番・名前・年齢に加えて「府県」も抽出
+    # 車番・名前・年齢・府県を抽出
     matches = list(re.finditer(r'([1-9])\s+([^\s\d\(\)（）]+)[\s\n]*[\(（](\d{2})[\)）][\s\n]*([^\s/]+)', text))
     
     for i, match in enumerate(matches):
@@ -55,18 +61,19 @@ def extract_players_ultra(text):
         floats = [float(n) for n in all_nums if "." in n]
         ints = [int(n) for n in all_nums if "." not in n and int(n) != int(age) and int(n) < 60]
 
+        # S B 逃 捲 差 マ の抽出
         s, b, nige, maki, sashi, ma = 0, 0, 0, 0, 0, 0
         for j in range(len(ints) - 5):
             window = ints[j:j+6]
-            if 0 < sum(window) < 100:
+            if 0 < sum(window) < 120:
                 s, b, nige, maki, sashi, ma = window
                 break
         
+        # 勝率等の抽出
         win_rate, ren_rate, san_rate = 0.0, 0.0, 0.0
-        if len(floats) >= 3:
-            target_floats = [f for f in floats if f != 3.92]
-            if len(target_floats) >= 3:
-                win_rate, ren_rate, san_rate = target_floats[:3]
+        target_floats = [f for f in floats if f != 3.92]
+        if len(target_floats) >= 3:
+            win_rate, ren_rate, san_rate = target_floats[:3]
 
         players.append({
             "車番": car_num, "選手名": name, "年齢": int(age), "府県": pref, "地区": get_region(pref),
@@ -76,105 +83,98 @@ def extract_players_ultra(text):
     return players
 
 def calculate_advanced_scores(players, place, line_raw):
-    """ライン結束度と厚みを考慮した計算"""
-    # 1. 個人の基本スコア算出
+    # 1. 個人の基本スコア
     for p in players:
-        score = (p["勝率"] * 1.5 + p["B"] * 5.0 + p["逃"] * 3.5 + p["捲"] * 3.0 + p["年齢"] * -0.2)
+        score = (p["勝率"] * 1.5 + p["B"] * 5.5 + p["逃"] * 4.0 + p["捲"] * 3.5 + p["差"] * 1.0)
         score += BANK_BONUS.get(place, 5)
+        if p["年齢"] <= 30: score += 20
         p["AI個人スコア"] = round(score, 1)
 
-    # 2. ライン情報の解析 (並び予想から)
-    # 簡易的に [7,1,9] のようなグループに分け、結束度を判定
+    # 2. ライン情報の解析
     line_groups = []
     current_line = []
-    lines_raw_split = line_raw.split("\n")
-    for l in lines_raw_split:
-        val = l.strip()
-        if val.isdigit():
-            current_line.append(val)
-        elif current_line:
-            line_groups.append(current_line)
+    for l in line_raw.split():
+        if l.isdigit(): current_line.append(l)
+        else:
+            if current_line: line_groups.append(current_line)
             current_line = []
     if current_line: line_groups.append(current_line)
 
-    # 3. ライン結束加点
+    # 3. 結束度加点
     for group in line_groups:
         if len(group) < 2: continue
-        leader_num = group[0]
-        # リーダーを見つける
-        leader = next((p for p in players if p["車番"] == leader_num), None)
+        leader = next((p for p in players if p["車番"] == group[0]), None)
         if not leader: continue
-
         for i in range(1, len(group)):
-            follower = next((p for p in players if p["車番"] == group[i]), None)
-            if not follower: continue
-            
-            # 同県
-            if leader["府県"] == follower["府県"]:
-                follower["AI個人スコア"] += 15.0
-                follower["結束度"] = "同県(強)"
-            # 同地区
-            elif leader["地区"] == follower["地区"]:
-                follower["AI個人スコア"] += 8.0
-                follower["結束度"] = "同地区(中)"
-            else:
-                follower["AI個人スコア"] += 2.0
-                follower["結束度"] = "隣接地区(弱)"
+            f = next((p for p in players if p["車番"] == group[i]), None)
+            if not f: continue
+            if leader["府県"] == f["府県"]: f["AI個人スコア"] += 15.0
+            elif leader["地区"] == f["地区"]: f["AI個人スコア"] += 8.0
+            else: f["AI個人スコア"] += 2.0
 
-    return sorted(players, key=lambda x: x["AI個人スコア"], reverse=True), line_groups
+    return sorted(players, key=lambda x: x["AI個人スコア"], reverse=True)
 
 # =====================================
-# 3. UI表示
+# 3. メインレイアウト
 # =====================================
-col_in1, col_in2 = st.columns([2, 1])
+col_in1, col_in2 = st.columns([3, 1])
 with col_in1:
-    data_input = st.text_area("出走表データを貼り付け", height=250)
+    data_input = st.text_area("出走表データを貼り付けてください", height=300)
 with col_in2:
-    line_input = st.text_area("並び予想 (数字を改行して入力)", height=250, placeholder="7\n1\n9\n4\n2...")
+    line_input = st.text_area("並び予想 (数字を改行/空白入力)", height=300, placeholder="7\n1\n9\n4\n2...")
 
-if st.button("AIライン解析・厳選8点生成", type="primary", use_container_width=True):
-    if data_input.strip():
-        place = extract_place(data_input)
-        players = extract_players_ultra(data_input)
+if st.button("AI解析・厳選8点生成開始", type="primary", use_container_width=True):
+    if not data_input.strip():
+        st.error("データを入力してください。")
+    else:
+        # ここで呼び出し順序を確定
+        current_place = extract_place(data_input)
+        player_list = extract_players_ultra(data_input)
         
-        if players:
-            sorted_p, line_groups = calculate_advanced_scores(players, place, line_input)
+        if player_list:
+            sorted_p = calculate_advanced_scores(player_list, current_place, line_input)
             
-            # --- 解析指標の算出 ---
+            # 的中率・回収計算
             top_p = sorted_p[0]
-            accuracy = round(min(30 + (top_p["AI個人スコア"] * 0.5) + (top_p["B"] * 1.5), 98.0), 1)
+            diff = top_p["AI個人スコア"] - sorted_p[1]["AI個人スコア"]
+            accuracy = round(min(30 + (diff * 2.5) + (top_p["B"] * 2), 98.2), 1)
+            est_return = int(1000 * (accuracy / 22) * (1 + (top_p["勝率"]/100)))
 
-            st.success(f"📍 開催場: {place} / 的中期待値: {accuracy}%")
+            # 結果表示
+            st.success(f"📍 開催場: {current_place} / 的中期待値: {accuracy}%")
             
-            # 的中率・判断
-            m1, m2 = st.columns(2)
-            m1.metric("ライン結束考慮 的中率", f"{accuracy}%")
-            m2.metric("ライン合計指数 (主導権ライン)", f"{round(sum(p['AI個人スコア'] for p in sorted_p[:3]), 1)}")
+            m1, m2, m3 = st.columns(3)
+            m1.metric("予想的中率", f"{accuracy}%")
+            m2.metric("想定回収額 (800円時)", f"¥{est_return:,}")
+            m3.metric("主導権期待値 (B)", f"{top_p['B']}")
 
-            # 詳細表
-            st.subheader("📊 ライン結束・能力分析表")
+            # ランキング
+            st.subheader("📊 AIライン結束・能力解析表")
             df = pd.DataFrame(sorted_p)
-            st.dataframe(df[["車番", "選手名", "府県", "AI個人スコア", "B", "逃", "捲", "差"]], use_container_width=True)
+            st.dataframe(df[["車番", "選手名", "府県", "AI個人スコア", "B", "逃", "捲", "差", "勝率"]], use_container_width=True)
 
-            # 買い目（厳選8点）
+            # 買い目生成 (8点厳選)
             st.divider()
-            st.header("🎯 厳選3連単 8点 (本線4・中穴2・大穴2)")
+            st.header("🎯 3連単 厳選8点勝負")
             n = [p["車番"] for p in sorted_p]
-            bets = {
-                "本線（4点）": [f"{n[0]}-{n[1]}-{n[2]}", f"{n[0]}-{n[1]}-{n[3]}", f"{n[1]}-{n[0]}-{n[2]}", f"{n[1]}-{n[0]}-{n[3]}"],
-                "中穴（2点）": [f"{n[0]}-{n[2]}-{n[4]}", f"{n[2]}-{n[0]}-{n[1]}"],
-                "大穴（2点）": [f"{n[3]}-{n[0]}-{n[1]}", f"{n[4]}-{n[0]}-{n[1]}"]
-            }
+            if len(n) >= 5:
+                b_hon = [f"{n[0]}-{n[1]}-{n[2]}", f"{n[0]}-{n[1]}-{n[3]}", f"{n[1]}-{n[0]}-{n[2]}", f"{n[1]}-{n[0]}-{n[3]}"]
+                b_chu = [f"{n[0]}-{n[2]}-{n[1]}", f"{n[0]}-{n[1]}-{n[4]}"]
+                b_ana = [f"{n[2]}-{n[0]}-{n[1]}", f"{n[3]}-{n[0]}-{n[1]}"]
+                
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.success("🔥 本線 (4点)")
+                    for b in b_hon: st.write(f"**{b}**")
+                with c2:
+                    st.warning("⚖️ 中穴 (2点)")
+                    for b in b_chu: st.write(f"**{b}**")
+                with c3:
+                    st.error("🚀 大穴 (2点)")
+                    for b in b_ana: st.write(f"**{b}**")
             
-            b1, b2, b3 = st.columns(3)
-            with b1:
-                st.success("🔥 本線 (4点)")
-                for b in bets["本線（4点）"]: st.write(f"**{b}**")
-            with b2:
-                st.warning("⚖️ 中穴 (2点)")
-                for b in bets["中穴（2点）"]: st.write(f"**{b}**")
-            with b3:
-                st.error("🚀 大穴 (2点)")
-                for b in bets["大穴（2点）"]: st.write(f"**{b}**")
+            st.info(f"💡 **投資判断**: {'厚めに勝負可能' if accuracy > 70 else '手堅く分散投資'}。軸馬 {top_p['選手名']} の自力能力を高く評価しています。")
+        else:
+            st.error("選手情報を解析できませんでした。コピー範囲を確認してください。")
 
-            st.info(f"💡 **ライン分析**: 自力型 {top_p['選手名']} 選手と番手選手の結束度が評価を押し上げています。別線の単騎勢の突っ込みには注意が必要です。")
+if st.button("リセット"): st.rerun()
