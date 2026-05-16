@@ -4,12 +4,12 @@ import pandas as pd
 import os
 
 st.set_page_config(
-    page_title="KEIRIN INVEST AI PRO",
+    page_title="KEIRIN INVEST AI ULTIMATE",
     layout="wide"
 )
 
-st.title("🚴 KEIRIN INVEST AI PRO")
-st.write("Version 5")
+st.title("🚴 KEIRIN INVEST AI ULTIMATE")
+st.write("Version 6")
 
 race_data = st.text_area(
     "競輪データ貼付",
@@ -22,7 +22,8 @@ BANK_BONUS = {
     "宇都宮": 5,
     "平塚": 3,
     "松戸": 4,
-    "小田原": 2
+    "小田原": 2,
+    "高知": 6
 }
 
 def extract_race_place(text):
@@ -52,7 +53,7 @@ def extract_players(text):
 
     return re.findall(pattern, text)
 
-def extract_win_rates(text):
+def extract_rates(text):
 
     rates = re.findall(r'\d+\.\d+', text)
 
@@ -84,11 +85,25 @@ def calculate_ai_score(win_rate, b_count, bank_bonus):
 
     score = 0
 
-    score += float(win_rate) * 1.5
-    score += int(b_count) * 3
+    score += float(win_rate) * 1.8
+    score += int(b_count) * 4
     score += bank_bonus
 
     return round(score, 1)
+
+def calculate_expected_value(score):
+
+    if score >= 100:
+        return 140
+
+    elif score >= 80:
+        return 125
+
+    elif score >= 60:
+        return 110
+
+    else:
+        return 85
 
 def save_result(race, hit, profit):
 
@@ -132,7 +147,7 @@ if st.button("AI予想開始"):
 
     players = extract_players(race_data)
 
-    rates = extract_win_rates(race_data)
+    rates = extract_rates(race_data)
 
     b_counts = extract_b_counts(race_data)
 
@@ -158,7 +173,7 @@ if st.button("AI予想開始"):
 
         st.write(f"{line1[0]} 先行")
         st.write(f"{line1[1]} 番手差し")
-        st.write(f"{line2[0]} 捲り")
+        st.write(f"{line2[0]} 捲り警戒")
 
         st.subheader("AIスコアランキング")
 
@@ -166,7 +181,6 @@ if st.button("AI予想開始"):
 
         for i in range(min(len(players), len(rates), len(b_counts))):
 
-            car_num = players[i][0]
             player_name = players[i][1].strip()
 
             score = calculate_ai_score(
@@ -187,13 +201,35 @@ if st.button("AI予想開始"):
 
             st.write(f"{rank}位 {name} AI点数 {score}")
 
-        st.subheader("危険人気")
+        top_score = sorted_scores[0][1]
 
-        st.error("人気先行タイプ注意")
+        expected_value = calculate_expected_value(top_score)
+
+        st.subheader("本命危険度")
+
+        if top_score >= 100:
+            st.success("本命信頼度 高")
+
+        elif top_score >= 70:
+            st.warning("本命信頼度 中")
+
+        else:
+            st.error("本命危険")
 
         st.subheader("穴期待値")
 
         st.success(f"穴候補：車番 {single}")
+
+        st.subheader("買い推奨判定")
+
+        if expected_value >= 120:
+            st.success("買い推奨レース")
+
+        elif expected_value >= 100:
+            st.warning("回収率注意")
+
+        else:
+            st.error("見送り推奨")
 
         st.subheader("推奨3連単")
 
@@ -202,15 +238,18 @@ if st.button("AI予想開始"):
             f"{line1[0]}-{line1[1]}-{line2[0]}",
             f"{line2[0]}-{line2[1]}-{line1[1]}",
             f"{line1[1]}-{line2[0]}-{line1[0]}",
-            f"{single}-{line1[1]}-{line1[0]}"
+            f"{single}-{line1[1]}-{line1[0]}",
+            f"{line1[1]}-{single}-{line1[0]}",
+            f"{line2[0]}-{line1[1]}-{single}",
+            f"{single}-{line2[0]}-{line1[1]}"
         ]
 
         for bet in bets:
             st.write(bet)
 
-        st.subheader("AI期待値")
+        st.subheader("AI期待回収率")
 
-        st.success("期待回収率：128%")
+        st.success(f"期待回収率：{expected_value}%")
 
     else:
 
