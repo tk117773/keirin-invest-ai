@@ -5,86 +5,83 @@ import re
 # --- ページ設定 ---
 st.set_page_config(page_title="KEIRIN INVEST AI Ultimate", layout="wide")
 st.title("🚴 KEIRIN INVEST AI Ultimate")
-st.caption("【URLデータ統合版】Kドリームス等の出走表を丸ごとコピペで全自動解析")
+st.caption("【和歌山/Kドリームス形式】改行された数値を正確に紐付け解析")
 
-def extract_combined_data_ultimate(text):
+def extract_combined_data_v3(text):
     data_map = {}
-    lines = text.split('\n')
+    lines = [l.strip() for l in text.split('\n') if l.strip()]
     
-    # 1. 選手名と車番を紐付け（ベース作成）
-    for line in lines:
-        # 車番 選手名 府県 などの並びから抽出
-        base_match = re.search(r'([1-9])\s+([1-9])\s+([^\s\d\/]+(?:\s+[^\s\d\/]+)?)', line)
-        if not base_match:
-            # 車番と名前だけのパターン
-            base_match = re.search(r'([1-9])\s+([^\s\d\/]{2,10})', line)
-            
-        if base_match:
-            car_num = base_match.group(1)
-            name = base_match.group(len(base_match.groups())).strip().replace(" ", "").replace("　", "")
-            if car_num not in data_map and len(name) > 1:
+    # 1. 選手リストの作成（まず全選手を特定する）
+    for i, line in enumerate(lines):
+        # 「1 1 岡崎 和久」または「7 櫻井 宏智」のような形式を抽出
+        m = re.search(r'^([1-7])\s+([1-7])?\s*([^\s\d\/]{2,10}(?:\s+[^\s\d\/]+)?)', line)
+        if m:
+            car_num = m.group(2) if m.group(2) else m.group(1)
+            name = m.group(3).replace(" ", "").replace("　", "")
+            if car_num not in data_map:
                 data_map[car_num] = {
-                    "車番": car_num, "選手名": name, "競走得点": 0.0, "脚": "-", 
+                    "車番": car_num, "選手名": name, "競走得点": 0.0, "脚": "-", "ギア": "-",
                     "S": 0, "B": 0, "逃": 0, "捲": 0, "差": 0, "マ": 0,
-                    "勝率": 0.0, "2連対率": 0.0, "3連対率": 0.0,
-                    "1着": 0, "2着": 0, "3着": 0, "AI指数": 0.0
+                    "勝率": 0.0, "1着": 0, "2着": 0, "3着": 0, "着外": 0
                 }
 
-    # 2. 各行から数値を抽出し、選手名で合体させる
-    for line in lines:
-        line_nums = re.findall(r'\d+\.\d+|\d+', line)
-        if not line_nums: continue
-        
-        # この行がどの選手のデータか特定
-        target_player = None
+    # 2. 数値の紐付け（選手名の後の行にある数値を解析）
+    for i, line in enumerate(lines):
         clean_line = line.replace(" ", "").replace("　", "")
-        for c, p_info in data_map.items():
-            if p_info["選手名"] in clean_line:
-                target_player = c
-                break
-        
-        if not target_player: continue
-        p = data_map[target_player]
+        for c, p in data_map.items():
+            if p["選手名"] in clean_line:
+                # 選手名が見つかったら、その行および「次の行」を調べる
+                context = line
+                if i + 1 < len(lines):
+                    context += " " + lines[i+1]
+                
+                nums = re.findall(r'\d+\.\d+|\d+', context)
+                
+                # --- A. 競走得点・決まり手セクション ---
+                # 84.50 0 0 0 0 0 0 のような並び
+                if any(35.0 <= float(x) <= 150.0 for x in nums if "." in x):
+                    p["競走得点"] = next(float(x) for x in nums if 35.0 <= float(x) <= 150.0)
+                    ints = [int(x) for x in nums if "." not in x]
+                    if len(ints) >= 6:
+                        p["S"], p["B"], p["逃"], p["捲"], p["差"], p["マ"] = ints[-6:]
 
-        # 数値のリストを浮動小数点に変換
-        floats = [float(x) for x in line_nums]
-        ints = [int(x) for x in line_nums if "." not in x]
+                # --- B. 脚質・ギアセクション ---
+                leg_m = re.search(r'(逃|両|追|自在|追込)', context)
+                if leg_m: p["脚"] = leg_m.group(1)
+                gear_m = re.search(r'([3-4]\.\d{2})', context)
+                if gear_m: p["ギア"] = gear_m.group(1)
 
-        # --- A. 競走得点・決まり手 (35以上があれば得点セクション) ---
-        if any(35.0 <= f <= 150.0 for f in floats):
-            p["競走得点"] = next(f for f in floats if 35.0 <= f <= 150.0)
-            # 得点の後に続く整数を決まり手として取得
-            if len(ints) >= 6:
-                p["S"], p["B"], p["逃"], p["捲"], p["差"], p["マ"] = ints[-6:]
+                # --- C. 勝率セクション ---
+                # 11.1 33.3 44.4 のような並び
+                rates = [float(x) for x in nums if "." in x and float(x) < 35.0]
+                if len(rates) >= 3:
+                    p["勝率"] = rates[0]
 
-        # --- B. 勝率・連対率 (小数点1位が3つ並ぶ) ---
-        rates = [f for f in floats if 0.0 <= f <= 100.0 and len(str(f).split('.')[-1]) == 1 and f < 35.0]
-        if len(rates) >= 3:
-            p["勝率"], p["2連対率"], p["3連対率"] = rates[0], rates[1], rates[2]
-
-        # --- C. 戦績 (1-3着) ---
-        if "着外" in text or len(ints) >= 5:
-            # 行の中に含まれる車番(target_player)を探し、その後の数字を拾う
-            try:
-                idx = ints.index(int(target_player))
-                if len(ints) > idx + 4:
-                    p["1着"], p["2着"], p["3着"] = ints[idx+1], ints[idx+2], ints[idx+3]
-            except: pass
-
-        # --- D. 脚質 ---
-        leg_m = re.search(r'(逃|両|追|自在|追込)', line)
-        if leg_m: p["脚"] = leg_m.group(1)
+                # --- D. 戦績セクション (1着 2着 3着 着外) ---
+                # 選手名の後の行に 2 4 2 10 のように整数が並ぶ
+                ints_potential = [int(x) for x in nums if "." not in x]
+                # 車番(c)の後の4つの数字を戦績とみなす
+                try:
+                    c_idx = -1
+                    for idx, val in enumerate(ints_potential):
+                        if val == int(c): c_idx = idx
+                    if c_idx != -1 and len(ints_potential) > c_idx + 4:
+                        p["1着"] = ints_potential[c_idx+1]
+                        p["2着"] = ints_potential[c_idx+2]
+                        p["3着"] = ints_potential[c_idx+3]
+                        p["着外"] = ints_potential[c_idx+4]
+                except: pass
 
     return list(data_map.values())
 
 def calculate_ai_score(players, line_raw):
     for p in players:
-        # 指数ロジック（スジ・番手勝負・自力を多角的に評価）
+        # 指数計算
         score = (p["競走得点"] * 1.5 + p["勝率"] * 1.2 + p["B"] * 4.0 + 
-                 p["逃"] * 3.0 + p["捲"] * 2.5 + p["1着"] * 2.0 + p["2着"] * 1.0)
+                 p["逃"] * 3.0 + p["1着"] * 2.5 + p["2着"] * 1.0)
         p["AI指数"] = round(score, 1)
     
-    line_nums = re.findall(r'[1-9]', line_raw)
+    line_nums = re.findall(r'[1-7]', line_raw)
     sorted_p = sorted(players, key=lambda x: x["AI指数"], reverse=True)
     top_p = sorted_p[0] if sorted_p else None
     m_line = []
@@ -94,37 +91,24 @@ def calculate_ai_score(players, line_raw):
     return sorted_p, m_line
 
 # --- UI ---
-st.info("💡 使い方: URL先の出走表ページで『Ctrl+A（全選択）』→『Ctrl+C（コピー）』し、下の枠に貼り付けてください。")
-data_in = st.text_area("出走表データを丸ごと貼り付け", height=300)
-line_in = st.text_input("並び予想 (例: 5 2 6 1 3 7 4)", value="")
+st.info("和歌山競輪の出走表（得点・脚質・勝率・戦績すべて）をコピーして貼り付けてください。")
+data_in = st.text_area("競輪データ貼り付け", height=400)
+line_in = st.text_input("並び予想 (例: 3 7 4 5 2 6 1)", value="")
 
-if st.button("🚀 AI解析・全データ統合実行", type="primary"):
-    players = extract_combined_data_ultimate(data_in)
+if st.button("🚀 和歌山データ解析実行", type="primary"):
+    players = extract_combined_data_v3(data_in)
     if players:
         sorted_p, m_line = calculate_ai_score(players, line_in)
         top = sorted_p[0]
         n = [p["車番"] for p in sorted_p]
         
-        st.success(f"【AI本命軸】 {top['車番']} {top['選手名']} (指数: {top['AI指数']})")
+        st.success(f"【AI軸】 {top['車番']} {top['選手名']} (指数: {top['AI指数']})")
         
-        # 買い目 8点
+        # 買い目表示（簡易）
         b1 = m_line[0] if len(m_line) > 0 else n[1]
         b2 = m_line[1] if len(m_line) > 1 else (n[2] if n[2]!=b1 else n[3])
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.success("🔥 本線(スジ)")
-            st.write(f"**{top['車番']}-{b1}-{b2}**")
-            st.write(f"**{top['車番']}-{b1}-{n[1] if n[1] not in [top['車番'],b1,b2] else n[2]}**")
-        with col2:
-            st.warning("⚖️ 逆転(スジ裏)")
-            st.write(f"**{b1}-{top['車番']}-{b2}**")
-            st.write(f"**{b1}-{top['車番']}-{n[1] if n[1] not in [top['車番'],b1,b2] else n[2]}**")
-        with col3:
-            st.error("🚀 展開穴")
-            st.write(f"**{top['車番']}-{b2}-{b1}**")
-            st.write(f"**{b1}-{b2}-{top['車番']}**")
+        st.code(f"3連単推奨: {top['車番']}-{b1}-{b2}, {top['車番']}-{b1}-{n[1] if n[1] not in [top['車番'],b1] else n[2]}")
 
         st.divider()
-        st.subheader("📊 統合解析データ（URLからのコピペ反映結果）")
-        st.dataframe(pd.DataFrame(sorted_p)[["車番", "選手名", "競走得点", "脚", "1着", "勝率", "B", "逃", "捲", "差", "マ", "AI指数"]], use_container_width=True)
+        st.subheader("📊 解析結果テーブル")
+        st.dataframe(pd.DataFrame(sorted_p)[["車番", "選手名", "競走得点", "脚", "1着", "2着", "3着", "B", "逃", "捲", "勝率", "AI指数"]], use_container_width=True)
